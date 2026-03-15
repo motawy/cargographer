@@ -1,0 +1,42 @@
+{
+  "name": "cartograph",
+  "version": "0.1.0",
+  "description": "Map your codebase so AI can navigate it",
+  "type": "module",
+  "bin": {
+    "cartograph": "./dist/cli/main.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli/main.ts",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run tests/integration",
+    "migrate": "tsx src/db/migrate.ts"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/motawy/cargographer.git"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "commander": "^14.0.3",
+    "dotenv": "^17.3.1",
+    "fast-glob": "^3.3.3",
+    "ignore": "^7.0.5",
+    "pg": "^8.20.0",
+    "tree-sitter": "^0.22.4",
+    "tree-sitter-php": "^0.24.2",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/pg": "^8.18.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  }
+}
