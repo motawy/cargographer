@@ -13,7 +13,9 @@ export function createIndexCommand(): Command {
     .description('Build or update the codebase index')
     .argument('<repo-path>', 'Path to the repository to index')
     .option('--run-migrations', 'Run database migrations before indexing')
-    .action(async (repoPath: string, opts: { runMigrations?: boolean }) => {
+    .option('--verbose', 'Log every file as it is processed')
+    .option('--log <path>', 'Write full log output to a file')
+    .action(async (repoPath: string, opts: { runMigrations?: boolean; verbose?: boolean; log?: string }) => {
       const config = loadConfig(repoPath);
       const pool = createPool(config.database);
 
@@ -27,7 +29,10 @@ export function createIndexCommand(): Command {
         }
 
         const pipeline = new IndexPipeline(pool);
-        await pipeline.run(repoPath, config);
+        await pipeline.run(repoPath, config, {
+          verbose: opts.verbose,
+          logFile: opts.log,
+        });
       } finally {
         await pool.end();
       }
