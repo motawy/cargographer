@@ -7,5 +7,6 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     globalSetup: ['tests/setup.ts'],
     testTimeout: 30000,
+    fileParallelism: false,
   },
 });
