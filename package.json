@@ -28,7 +28,7 @@
     "fast-glob": "^3.3.3",
     "ignore": "^7.0.5",
     "pg": "^8.20.0",
-    "tree-sitter": "^0.22.4",
+    "tree-sitter": "^0.25.0",
     "tree-sitter-php": "^0.24.2",
     "yaml": "^2.8.2"
   },
