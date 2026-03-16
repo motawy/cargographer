@@ -20,13 +20,13 @@ Two phases:
 
 **File:** `src/output/generate-pipeline.ts` — `queryDependencies()`
 
-**Fix:** Add a WHERE clause to the external deps query requiring `target_qualified_name` to contain at least one backslash:
+**Fix:** Add a WHERE clause to the external deps query requiring `target_qualified_name` to contain at least one backslash. Note: PostgreSQL uses backslash as the LIKE escape character, so matching a literal backslash requires double-escaping with the `E` string prefix:
 
 ```sql
-AND sr.target_qualified_name LIKE '%\\%'
+AND sr.target_qualified_name LIKE E'%\\\\%'
 ```
 
-This filters out all non-namespaced references (`m::mock`, `PDO::FETCH_NUM`, etc.) in one condition. Namespaced external deps like `Symfony\Component\...` and `Doctrine\ORM\...` pass through correctly.
+This filters out all non-namespaced references (`m::mock`, `PDO::FETCH_NUM`, etc.) in one condition. Namespaced external deps like `Symfony\Component\...` and `Doctrine\ORM\...` pass through correctly. This is consistent with the existing `split_part(sr.target_qualified_name, E'\\\\', 1)` pattern already used in the query.
 
 **Impact:** Removes ~20+ noisy entries from external deps. The remaining entries are genuine framework/library namespaces.
 
@@ -68,7 +68,7 @@ The architecture description should reflect what the code actually does, not jus
   `**Test suite:** 4,140 symbols across tests/objects/, tests/src/`
 - No table, no per-symbol listing for test modules.
 
-Also filter test modules from the directory map in `root-generator.ts` — they still appear in the directory listing (that's fine for orientation) but don't inflate the module listing.
+In `root-generator.ts`, the directory map keeps test directories (they're useful for orientation) but the root generator applies the same path-prefix check inline to avoid counting test directories as architectural modules.
 
 **Impact:** Production code surfaces first. AI discovers test details on demand.
 
@@ -82,7 +82,7 @@ Also filter test modules from the directory map in `root-generator.ts` — they 
 - `src/output/modules-generator.ts` — rendering logic
 - `src/output/generate-pipeline.ts` — `queryModules()`, `queryRepoStats()`
 
-**Fix:** Detect single-file "modules" by checking if the module path ends with `.php` (or any source file extension). In the generator:
+**Fix:** Detect single-file "modules" by adding a file count to the module query (`COUNT(DISTINCT f.id)` per module group) and checking if a module has exactly 1 backing file. This is more robust than checking for `.php` in the path suffix — it handles all depths and file extensions. In the generator:
 
 - Single-file modules don't get a full table section.
 - Instead, render them in a compact "Standalone Files" section:
@@ -96,7 +96,7 @@ Also filter test modules from the directory map in `root-generator.ts` — they 
   ```
 - Limit to top 10 standalone files by symbol count, with a "... and N more" truncation.
 
-Apply the same detection in the directory map (`root-generator.ts`): single-file entries render with the file name, not as directories.
+Apply the same detection in the directory map (`root-generator.ts`): pass a `fileCount` field in `DirectoryStats` so single-file entries render with the file name, not as directories.
 
 **Impact:** Stops presenting utility files as architectural modules. Makes the module overview more accurate.
 
@@ -110,14 +110,15 @@ Apply the same detection in the directory map (`root-generator.ts`): single-file
 
 **Fix:**
 
-1. Filter out magic methods (`__*`) from the naming sample before computing percentages. Magic methods are a language requirement, not a naming convention choice.
+1. Exclude magic methods at the SQL level in `queryConventions()`: add `AND s.name NOT LIKE '\\_\\_%'` to the method names query. This maintains a full 200-method sample of non-magic methods rather than fetching 200 and filtering down.
 
-2. Change the method naming regex to: `/^[a-z][a-zA-Z0-9_]*$/` — this matches both `camelCase` and `snake_case` methods.
-
-3. Optionally distinguish camelCase vs snake_case:
+2. Distinguish camelCase vs snake_case with separate regexes (required, not optional):
    - camelCase: `/^[a-z][a-zA-Z0-9]*$/` (no underscores)
    - snake_case: `/^[a-z][a-z0-9_]*$/` (lowercase + underscores only)
-   - Report whichever is dominant: "Method naming: 85% camelCase (sample of 200)"
+   - Report the dominant style: "Method naming: 85% camelCase (sample of 200)"
+   - If mixed, report both: "Method naming: 60% camelCase, 35% snake_case (sample of 200)"
+
+3. The magic method count is reported separately (as it already is), using data from the symbol kind counts rather than the naming sample.
 
 **Impact:** Method naming percentage becomes accurate and informative.
 
@@ -134,12 +135,16 @@ Apply the same detection in the directory map (`root-generator.ts`): single-file
 - `src/indexer/reference-extractor.ts` — `resolveTypeName()`
 - `src/db/repositories/reference-repository.ts` — `resolveTargets()`
 
-**Fix:** Normalize all qualified names to lowercase at index time:
+**Fix:** Normalize reference targets to lowercase at index time, and use `LOWER()` on the symbol side during resolution:
 
-1. In `php.ts`, `qualifyName()` returns `result.toLowerCase()`.
-2. In both `resolveTypeName()` functions (php.ts and reference-extractor.ts), normalize the result to lowercase.
-3. `resolveTargets()` can keep exact string matching since both sides are now normalized.
-4. Store the original-case `name` field unchanged (for display). Only `qualified_name` is lowercased.
+1. In `reference-extractor.ts`, `resolveTypeName()` returns `result.toLowerCase()`. This means `target_qualified_name` in `symbol_references` is always lowercase.
+2. In `reference-repository.ts`, `resolveTargets()` changes the JOIN condition to: `sr.target_qualified_name = LOWER(s.qualified_name)`. This matches lowercase targets against lowercased symbol names.
+3. `symbols.qualified_name` stays in original case — generators continue to display `UserService`, not `userservice`.
+4. In `php.ts`, the import map (`context.imports`) stores values in original case (no change). `qualifyName()` stays unchanged. The `resolveTypeName()` in `php.ts` is NOT lowercased — only the reference extractor's version is, since that's what feeds `target_qualified_name`.
+
+**Why not lowercase `symbols.qualified_name`?** Generators extract display names from `qualifiedName.split('\\').pop()` — lowercasing would show `userservice` instead of `UserService` in modules.md. Keeping original case in symbols preserves display fidelity.
+
+**Why not lowercase both `resolveTypeName()` functions?** The php.ts version feeds into `symbols.qualified_name` (via `qualifyName()` and metadata like `extends`, `implements`). Lowercasing there would cascade into display names and metadata. Only the reference extractor's version feeds into `target_qualified_name`, which is never displayed directly.
 
 **Migration consideration:** Existing data must be re-indexed. No DB migration needed — the schema doesn't change, only the stored values do.
 
@@ -157,9 +162,9 @@ Apply the same detection in the directory map (`root-generator.ts`): single-file
 - #6: Test naming convention detection with `snake_case`, `camelCase`, `__construct` samples
 
 **Unit tests (indexer fix):**
-- Test that `qualifyName()` returns lowercase
-- Test that `resolveTypeName()` returns lowercase
-- Test that mixed-case references resolve to the same target
+- Test that reference extractor's `resolveTypeName()` returns lowercase
+- Test that php parser's `resolveTypeName()` preserves original case
+- Test that `resolveTargets()` matches `simPRO\Entity\Foo` target against `SimPRO\Entity\Foo` symbol
 
 **Integration test:**
 - Re-run `generate.test.ts` with fixture data to verify all files still generate correctly
