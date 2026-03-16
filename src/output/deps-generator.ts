@@ -37,17 +37,18 @@ export function generateDeps(data: DepsData): string {
     lines.push('```\n');
   }
 
-  // External dependencies
-  if (data.external.length > 0) {
+  // External dependencies — filter out non-namespaced entries (bare Class::method refs)
+  const namespacedExternal = data.external.filter(e => !e.namespace.includes('::'));
+  if (namespacedExternal.length > 0) {
     lines.push('## External Dependencies\n');
     lines.push('Frameworks and libraries referenced but not in the codebase:\n');
     lines.push('| Namespace | References |');
     lines.push('|-----------|-----------|');
-    for (const ext of data.external.slice(0, 20)) {
+    for (const ext of namespacedExternal.slice(0, 20)) {
       lines.push(`| ${ext.namespace} | ${ext.referenceCount} |`);
     }
-    if (data.external.length > 20) {
-      lines.push(`\n*... and ${data.external.length - 20} more*`);
+    if (namespacedExternal.length > 20) {
+      lines.push(`\n*... and ${namespacedExternal.length - 20} more*`);
     }
     lines.push('');
   }

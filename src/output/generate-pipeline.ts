@@ -274,6 +274,7 @@ export class GeneratePipeline {
        JOIN files f ON s.file_id = f.id
        WHERE f.repo_id = $1
          AND sr.target_symbol_id IS NULL
+         AND sr.target_qualified_name LIKE E'%\\\\\\\\%'
        GROUP BY namespace
        ORDER BY ref_count DESC`,
       [repoId]

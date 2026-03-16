@@ -62,4 +62,19 @@ describe('generateDeps', () => {
     expect(result).toContain('# Dependencies');
     expect(result).not.toContain('External Dependencies');
   });
+
+  it('filters non-namespaced external deps', () => {
+    const result = generateDeps(makeDeps({
+      external: [
+        { namespace: 'Symfony', referenceCount: 580 },
+        { namespace: 'm::mock', referenceCount: 52 },
+        { namespace: 'PDO::FETCH_NUM', referenceCount: 32 },
+        { namespace: 'Console::Log', referenceCount: 24 },
+      ],
+    }));
+    expect(result).toContain('Symfony');
+    expect(result).not.toContain('m::mock');
+    expect(result).not.toContain('PDO::FETCH_NUM');
+    expect(result).not.toContain('Console::Log');
+  });
 });
