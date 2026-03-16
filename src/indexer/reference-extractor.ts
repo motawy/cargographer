@@ -285,7 +285,7 @@ function walkForReferences(
       if (className && !isSelfReference(className)) {
         refs.push({
           sourceQualifiedName: sourceQN,
-          targetQualifiedName: `${resolveTypeName(className, context)}::${memberNode.text}`,
+          targetQualifiedName: `${resolveTypeName(className, context)}::${memberNode.text.toLowerCase()}`,
           kind: 'static_call',
           line: node.startPosition.row + 1,
         });
@@ -302,7 +302,7 @@ function walkForReferences(
       if (className && !isSelfReference(className)) {
         refs.push({
           sourceQualifiedName: sourceQN,
-          targetQualifiedName: `${resolveTypeName(className, context)}::${memberNode.text}`,
+          targetQualifiedName: `${resolveTypeName(className, context)}::${memberNode.text.toLowerCase()}`,
           kind: 'static_access',
           line: node.startPosition.row + 1,
         });
@@ -317,7 +317,7 @@ function walkForReferences(
     if (objectNode?.type === 'variable_name' && objectNode.text === '$this' && memberName) {
       refs.push({
         sourceQualifiedName: sourceQN,
-        targetQualifiedName: `${classQN}::${memberName.text}`,
+        targetQualifiedName: `${classQN}::${memberName.text}`.toLowerCase(),
         kind: 'self_call',
         line: node.startPosition.row + 1,
       });
@@ -335,20 +335,20 @@ function walkForReferences(
 // --- Helpers ---
 
 function resolveTypeName(name: string, context: NamespaceContext): string {
-  if (name.startsWith('\\')) return name.substring(1);
+  if (name.startsWith('\\')) return name.substring(1).toLowerCase();
 
   const firstPart = name.split('\\')[0];
   if (context.imports.has(firstPart)) {
     const resolved = context.imports.get(firstPart)!;
     const rest = name.substring(firstPart.length);
-    return resolved + rest;
+    return (resolved + rest).toLowerCase();
   }
 
   if (context.namespace) {
-    return `${context.namespace}\\${name}`;
+    return `${context.namespace}\\${name}`.toLowerCase();
   }
 
-  return name;
+  return name.toLowerCase();
 }
 
 function extractNameFromNode(node: SyntaxNode): string | null {

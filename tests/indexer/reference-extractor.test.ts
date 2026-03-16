@@ -34,7 +34,7 @@ describe('ReferenceExtractor', () => {
       const inheritance = refs.filter(r => r.kind === 'inheritance');
       expect(inheritance).toHaveLength(1);
       expect(inheritance[0].sourceQualifiedName).toBe('App\\Models\\User');
-      expect(inheritance[0].targetQualifiedName).toBe('Illuminate\\Database\\Eloquent\\Model');
+      expect(inheritance[0].targetQualifiedName).toBe('illuminate\\database\\eloquent\\model');
     });
 
     it('extracts implements references', () => {
@@ -46,7 +46,7 @@ describe('ReferenceExtractor', () => {
 
       const impls = refs.filter(r => r.kind === 'implementation');
       expect(impls).toHaveLength(1);
-      expect(impls[0].targetQualifiedName).toBe('App\\Contracts\\UserServiceInterface');
+      expect(impls[0].targetQualifiedName).toBe('app\\contracts\\userserviceinterface');
     });
 
     it('extracts trait use references', () => {
@@ -60,7 +60,7 @@ describe('ReferenceExtractor', () => {
 
       const traits = refs.filter(r => r.kind === 'trait_use');
       expect(traits).toHaveLength(1);
-      expect(traits[0].targetQualifiedName).toBe('App\\Traits\\HasTimestamps');
+      expect(traits[0].targetQualifiedName).toBe('app\\traits\\hastimestamps');
       expect(traits[0].sourceQualifiedName).toBe('App\\Models\\User');
     });
 
@@ -91,7 +91,7 @@ describe('ReferenceExtractor', () => {
 
       const hints = refs.filter(r => r.kind === 'type_hint');
       expect(hints).toHaveLength(2);
-      expect(hints.every(h => h.targetQualifiedName === 'App\\Models\\User')).toBe(true);
+      expect(hints.every(h => h.targetQualifiedName === 'app\\models\\user')).toBe(true);
       expect(hints[0].sourceQualifiedName).toBe('App\\Repositories\\UserRepository::update');
     });
 
@@ -107,7 +107,7 @@ describe('ReferenceExtractor', () => {
       const hints = refs.filter(r => r.kind === 'type_hint');
       expect(hints).toHaveLength(1);
       expect(hints[0].sourceQualifiedName).toBe('App\\Services\\UserService');
-      expect(hints[0].targetQualifiedName).toBe('App\\Repositories\\UserRepository');
+      expect(hints[0].targetQualifiedName).toBe('app\\repositories\\userrepository');
     });
 
     it('extracts promoted property type hints', () => {
@@ -123,7 +123,7 @@ describe('ReferenceExtractor', () => {
 
       const hints = refs.filter(r => r.kind === 'type_hint');
       expect(hints).toHaveLength(1);
-      expect(hints[0].targetQualifiedName).toBe('App\\Services\\UserService');
+      expect(hints[0].targetQualifiedName).toBe('app\\services\\userservice');
     });
 
     it('skips builtin types', () => {
@@ -151,7 +151,7 @@ describe('ReferenceExtractor', () => {
 
       const hints = refs.filter(r => r.kind === 'type_hint');
       expect(hints).toHaveLength(1);
-      expect(hints[0].targetQualifiedName).toBe('App\\Models\\User');
+      expect(hints[0].targetQualifiedName).toBe('app\\models\\user');
     });
   });
 
@@ -170,7 +170,7 @@ describe('ReferenceExtractor', () => {
       const insts = refs.filter(r => r.kind === 'instantiation');
       expect(insts).toHaveLength(1);
       expect(insts[0].sourceQualifiedName).toBe('App\\Services\\UserService::init');
-      expect(insts[0].targetQualifiedName).toBe('App\\Repositories\\UserRepository');
+      expect(insts[0].targetQualifiedName).toBe('app\\repositories\\userrepository');
     });
   });
 
@@ -189,7 +189,7 @@ describe('ReferenceExtractor', () => {
       const statics = refs.filter(r => r.kind === 'static_call');
       expect(statics).toHaveLength(1);
       expect(statics[0].sourceQualifiedName).toBe('App\\Repositories\\UserRepository::find');
-      expect(statics[0].targetQualifiedName).toBe('App\\Models\\User::find');
+      expect(statics[0].targetQualifiedName).toBe('app\\models\\user::find');
     });
 
     it('skips self:: and static:: calls', () => {
@@ -224,7 +224,7 @@ describe('ReferenceExtractor', () => {
 
       const access = refs.filter(r => r.kind === 'static_access');
       expect(access).toHaveLength(1);
-      expect(access[0].targetQualifiedName).toBe('App\\Models\\User::STATUS_ACTIVE');
+      expect(access[0].targetQualifiedName).toBe('app\\models\\user::status_active');
     });
   });
 
@@ -243,7 +243,24 @@ describe('ReferenceExtractor', () => {
       const selfCalls = refs.filter(r => r.kind === 'self_call');
       expect(selfCalls).toHaveLength(1);
       expect(selfCalls[0].sourceQualifiedName).toBe('App\\Services\\UserService::update');
-      expect(selfCalls[0].targetQualifiedName).toBe('App\\Services\\UserService::findById');
+      expect(selfCalls[0].targetQualifiedName).toBe('app\\services\\userservice::findbyid');
+    });
+
+    it('lowercases self_call target qualified names', () => {
+      const refs = parseAndExtract(`<?php
+        namespace App\\Services;
+        class UserService {
+            public function update(int $id): void {
+                $user = $this->findById($id);
+            }
+            public function findById(int $id): void {}
+        }
+      `);
+
+      const selfCalls = refs.filter(r => r.kind === 'self_call');
+      expect(selfCalls[0].targetQualifiedName).toBe('app\\services\\userservice::findbyid');
+      // Source stays original case
+      expect(selfCalls[0].sourceQualifiedName).toBe('App\\Services\\UserService::update');
     });
 
     it('does not extract $this->property access as self_call', () => {
@@ -259,6 +276,45 @@ describe('ReferenceExtractor', () => {
 
       const selfCalls = refs.filter(r => r.kind === 'self_call');
       expect(selfCalls).toHaveLength(0);
+    });
+  });
+
+  describe('case normalization', () => {
+    it('lowercases target qualified names', () => {
+      const refs = parseAndExtract(`<?php
+        namespace App\\Models;
+        use Illuminate\\Database\\Eloquent\\Model;
+        class User extends Model {}
+      `);
+
+      const inheritance = refs.filter(r => r.kind === 'inheritance');
+      expect(inheritance[0].targetQualifiedName).toBe('illuminate\\database\\eloquent\\model');
+    });
+
+    it('lowercases instantiation targets', () => {
+      const refs = parseAndExtract(`<?php
+        namespace App\\Services;
+        use App\\Repositories\\UserRepository;
+        class UserService {
+            public function init(): void {
+                $repo = new UserRepository();
+            }
+        }
+      `);
+
+      const insts = refs.filter(r => r.kind === 'instantiation');
+      expect(insts[0].targetQualifiedName).toBe('app\\repositories\\userrepository');
+    });
+
+    it('preserves source qualified name case', () => {
+      const refs = parseAndExtract(`<?php
+        namespace App\\Models;
+        use Illuminate\\Database\\Eloquent\\Model;
+        class User extends Model {}
+      `);
+
+      const inheritance = refs.filter(r => r.kind === 'inheritance');
+      expect(inheritance[0].sourceQualifiedName).toBe('App\\Models\\User');
     });
   });
 });
