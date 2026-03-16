@@ -240,25 +240,27 @@ export class GeneratePipeline {
 
   private async queryDependencies(repoId: number): Promise<DepsData> {
     const { rows: internalRows } = await this.pool.query(
-      `SELECT
-         split_part(sf.path, '/', 1) ||
-           CASE WHEN position('/' in sf.path) > 0
-                THEN '/' || split_part(sf.path, '/', 2)
-                ELSE '' END AS source_module,
-         split_part(tf.path, '/', 1) ||
-           CASE WHEN position('/' in tf.path) > 0
-                THEN '/' || split_part(tf.path, '/', 2)
-                ELSE '' END AS target_module,
-         COUNT(*)::int AS ref_count
-       FROM symbol_references sr
-       JOIN symbols ss ON sr.source_symbol_id = ss.id
-       JOIN files sf ON ss.file_id = sf.id
-       JOIN symbols ts ON sr.target_symbol_id = ts.id
-       JOIN files tf ON ts.file_id = tf.id
-       WHERE sf.repo_id = $1 AND tf.repo_id = $1
-         AND sr.target_symbol_id IS NOT NULL
-       GROUP BY source_module, target_module
-       HAVING source_module != target_module
+      `SELECT source_module, target_module, ref_count FROM (
+         SELECT
+           split_part(sf.path, '/', 1) ||
+             CASE WHEN position('/' in sf.path) > 0
+                  THEN '/' || split_part(sf.path, '/', 2)
+                  ELSE '' END AS source_module,
+           split_part(tf.path, '/', 1) ||
+             CASE WHEN position('/' in tf.path) > 0
+                  THEN '/' || split_part(tf.path, '/', 2)
+                  ELSE '' END AS target_module,
+           COUNT(*)::int AS ref_count
+         FROM symbol_references sr
+         JOIN symbols ss ON sr.source_symbol_id = ss.id
+         JOIN files sf ON ss.file_id = sf.id
+         JOIN symbols ts ON sr.target_symbol_id = ts.id
+         JOIN files tf ON ts.file_id = tf.id
+         WHERE sf.repo_id = $1 AND tf.repo_id = $1
+           AND sr.target_symbol_id IS NOT NULL
+         GROUP BY source_module, target_module
+       ) sub
+       WHERE source_module != target_module
        ORDER BY ref_count DESC`,
       [repoId]
     );
