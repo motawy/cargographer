@@ -22,6 +22,11 @@
     "type": "git",
     "url": "git+https://github.com/motawy/cargographer.git"
   },
+  "overrides": {
+    "tree-sitter-php": {
+      "tree-sitter": "$tree-sitter"
+    }
+  },
   "license": "ISC",
   "dependencies": {
     "commander": "^14.0.3",
