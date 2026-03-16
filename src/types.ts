@@ -37,6 +37,23 @@ export interface ParseResult {
   imports: Map<string, string>;
 }
 
+export type ReferenceKind =
+  | 'inheritance'
+  | 'implementation'
+  | 'trait_use'
+  | 'instantiation'
+  | 'static_call'
+  | 'type_hint'
+  | 'self_call'
+  | 'static_access';
+
+export interface ParsedReference {
+  sourceQualifiedName: string;
+  targetQualifiedName: string;
+  kind: ReferenceKind;
+  line: number;
+}
+
 export interface CartographConfig {
   languages: string[];
   exclude: string[];
