@@ -13,7 +13,9 @@
     "test:watch": "vitest",
     "test:integration": "vitest run tests/integration",
     "migrate": "tsx src/db/migrate.ts",
-    "setup": "./scripts/setup.sh"
+    "setup": "./scripts/setup.sh",
+    "db:export": "./scripts/db-export.sh",
+    "db:import": "./scripts/db-import.sh"
   },
   "engines": {
     "node": ">=22.0.0"
