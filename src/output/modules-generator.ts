@@ -36,7 +36,32 @@ export function generateModules(modules: ModuleInfo[]): string {
   lines.push('# Modules\n');
   lines.push(`${production.length} module areas, ${totalSymbols} top-level symbols.\n`);
 
-  // Production modules
+  // Test suite summary (compact, rendered first to survive truncation)
+  if (test.length > 0) {
+    const testSymbols = test.reduce((sum, m) => sum + m.symbols.length, 0);
+    const testDirs = test.map(m => m.path).join(', ');
+    lines.push(`**Test suite:** ${testSymbols.toLocaleString()} symbols across ${testDirs}\n`);
+  }
+
+  // Standalone files (compact, rendered before module tables)
+  if (standalone.length > 0) {
+    const sorted = standalone.sort((a, b) => b.symbols.length - a.symbols.length);
+    lines.push('## Standalone Files\n');
+    lines.push('| File | Symbols | Top Kind |');
+    lines.push('|------|---------|----------|');
+
+    for (const mod of sorted.slice(0, MAX_STANDALONE)) {
+      const topKind = mod.symbols[0]?.kind || 'unknown';
+      lines.push(`| ${mod.path} | ${mod.symbols.length} | ${topKind} |`);
+    }
+
+    if (standalone.length > MAX_STANDALONE) {
+      lines.push(`\n*... and ${standalone.length - MAX_STANDALONE} more*`);
+    }
+    lines.push('');
+  }
+
+  // Production modules (verbose tables — these get truncated first)
   let shown = 0;
   for (const mod of production) {
     if (shown >= MAX_MODULES) {
@@ -63,31 +88,6 @@ export function generateModules(modules: ModuleInfo[]): string {
     }
 
     shown++;
-  }
-
-  // Standalone files
-  if (standalone.length > 0) {
-    const sorted = standalone.sort((a, b) => b.symbols.length - a.symbols.length);
-    lines.push('## Standalone Files\n');
-    lines.push('| File | Symbols | Top Kind |');
-    lines.push('|------|---------|----------|');
-
-    for (const mod of sorted.slice(0, MAX_STANDALONE)) {
-      const topKind = mod.symbols[0]?.kind || 'unknown';
-      lines.push(`| ${mod.path} | ${mod.symbols.length} | ${topKind} |`);
-    }
-
-    if (standalone.length > MAX_STANDALONE) {
-      lines.push(`\n*... and ${standalone.length - MAX_STANDALONE} more*`);
-    }
-    lines.push('');
-  }
-
-  // Test suite summary
-  if (test.length > 0) {
-    const testSymbols = test.reduce((sum, m) => sum + m.symbols.length, 0);
-    const testDirs = test.map(m => m.path).join(', ');
-    lines.push(`**Test suite:** ${testSymbols.toLocaleString()} symbols across ${testDirs}\n`);
   }
 
   let result = lines.join('\n');
