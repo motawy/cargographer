@@ -25,3 +25,10 @@ export class DatabaseError extends CartographError {
     this.name = 'DatabaseError';
   }
 }
+
+export class GenerateError extends CartographError {
+  constructor(message: string) {
+    super(message, 'GENERATE_ERROR');
+    this.name = 'GenerateError';
+  }
+}

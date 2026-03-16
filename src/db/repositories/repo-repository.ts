@@ -22,6 +22,15 @@ export class RepoRepository {
     return this.toRecord(rows[0]);
   }
 
+  async findByPath(path: string): Promise<RepoRecord | null> {
+    const { rows } = await this.pool.query(
+      'SELECT id, path, name, created_at, last_indexed_at FROM repos WHERE path = $1',
+      [path]
+    );
+    if (rows.length === 0) return null;
+    return this.toRecord(rows[0]);
+  }
+
   async updateLastIndexed(id: number): Promise<void> {
     await this.pool.query(
       'UPDATE repos SET last_indexed_at = NOW() WHERE id = $1',
