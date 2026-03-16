@@ -59,7 +59,7 @@ export class ReferenceRepository {
        FROM symbols s
        JOIN files f ON s.file_id = f.id
        WHERE f.repo_id = $1
-         AND sr.target_qualified_name = s.qualified_name
+         AND sr.target_qualified_name = LOWER(s.qualified_name)
          AND sr.target_symbol_id IS NULL
          AND sr.source_symbol_id IN (
            SELECT id FROM symbols WHERE file_id IN (

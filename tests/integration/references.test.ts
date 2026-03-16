@@ -68,7 +68,7 @@ describe('Reference Resolution (Integration)', () => {
       ['App\\Services\\UserService']
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].target_qualified_name).toBe('App\\Contracts\\UserServiceInterface');
+    expect(rows[0].target_qualified_name).toBe('app\\contracts\\userserviceinterface');
     expect(rows[0].target_symbol_id).not.toBeNull();
   });
 
@@ -99,7 +99,7 @@ describe('Reference Resolution (Integration)', () => {
       ['App\\Models\\User']
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].target_qualified_name).toBe('App\\Traits\\HasTimestamps');
+    expect(rows[0].target_qualified_name).toBe('app\\traits\\hastimestamps');
     expect(rows[0].target_symbol_id).not.toBeNull();
   });
 
@@ -116,7 +116,7 @@ describe('Reference Resolution (Integration)', () => {
     );
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows.some((r: Record<string, unknown>) =>
-      r.target_qualified_name === 'App\\Models\\User'
+      r.target_qualified_name === 'app\\models\\user'
     )).toBe(true);
   });
 
@@ -132,7 +132,7 @@ describe('Reference Resolution (Integration)', () => {
       ['App\\Repositories\\UserRepository::find']
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].target_qualified_name).toBe('App\\Models\\User::find');
+    expect(rows[0].target_qualified_name).toBe('app\\models\\user::find');
   });
 
   it('reference count is reasonable for fixture project', async () => {
