@@ -135,6 +135,31 @@ describe('Reference Resolution (Integration)', () => {
     expect(rows[0].target_qualified_name).toBe('app\\models\\user::find');
   });
 
+  it('resolves Class::method references to class symbol via fallback', async () => {
+    const pipeline = new IndexPipeline(pool);
+    await pipeline.run(FIXTURES, testConfig());
+
+    // User::find() — find() is inherited from Model, not defined on User.
+    // Pass 2 strips ::find and resolves to the User class symbol.
+    const { rows } = await pool.query(
+      `SELECT sr.target_symbol_id FROM symbol_references sr
+       JOIN symbols s ON sr.source_symbol_id = s.id
+       WHERE s.qualified_name = $1
+         AND sr.reference_kind = 'static_call'
+         AND sr.target_qualified_name = $2`,
+      ['App\\Repositories\\UserRepository::find', 'app\\models\\user::find']
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].target_symbol_id).not.toBeNull();
+
+    // Verify it resolved to the User class
+    const { rows: target } = await pool.query(
+      'SELECT qualified_name FROM symbols WHERE id = $1',
+      [rows[0].target_symbol_id]
+    );
+    expect(target[0].qualified_name).toBe('App\\Models\\User');
+  });
+
   it('reference count is reasonable for fixture project', async () => {
     const pipeline = new IndexPipeline(pool);
     await pipeline.run(FIXTURES, testConfig());

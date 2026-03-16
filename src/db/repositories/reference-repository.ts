@@ -53,7 +53,8 @@ export class ReferenceRepository {
   }
 
   async resolveTargets(repoId: number): Promise<{ resolved: number; unresolved: number }> {
-    const { rowCount: resolved } = await this.pool.query(
+    // Pass 1: Exact match — target_qualified_name matches LOWER(qualified_name)
+    const { rowCount: exactResolved } = await this.pool.query(
       `UPDATE symbol_references sr
        SET target_symbol_id = s.id
        FROM symbols s
@@ -61,6 +62,27 @@ export class ReferenceRepository {
        WHERE f.repo_id = $1
          AND sr.target_qualified_name = LOWER(s.qualified_name)
          AND sr.target_symbol_id IS NULL
+         AND sr.source_symbol_id IN (
+           SELECT id FROM symbols WHERE file_id IN (
+             SELECT id FROM files WHERE repo_id = $1
+           )
+         )`,
+      [repoId]
+    );
+
+    // Pass 2: Class-level fallback — for Class::method patterns, resolve to the class symbol.
+    // This handles static calls, ::class constants, and method-level references
+    // where the class exists but the method-level symbol doesn't.
+    const { rowCount: classResolved } = await this.pool.query(
+      `UPDATE symbol_references sr
+       SET target_symbol_id = s.id
+       FROM symbols s
+       JOIN files f ON s.file_id = f.id
+       WHERE f.repo_id = $1
+         AND sr.target_qualified_name LIKE '%::%'
+         AND sr.target_symbol_id IS NULL
+         AND split_part(sr.target_qualified_name, '::', 1) = LOWER(s.qualified_name)
+         AND s.parent_symbol_id IS NULL
          AND sr.source_symbol_id IN (
            SELECT id FROM symbols WHERE file_id IN (
              SELECT id FROM files WHERE repo_id = $1
@@ -78,7 +100,7 @@ export class ReferenceRepository {
     );
 
     return {
-      resolved: resolved || 0,
+      resolved: (exactResolved || 0) + (classResolved || 0),
       unresolved: rows[0].count as number,
     };
   }
