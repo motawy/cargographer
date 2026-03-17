@@ -10,6 +10,7 @@ import { handleDeps } from './tools/deps.js';
 import { handleFlow } from './tools/flow.js';
 import { handleDependents } from './tools/dependents.js';
 import { handleBlastRadius } from './tools/blast-radius.js';
+import { handleStatus } from './tools/status.js';
 
 interface ServerOptions {
   pool: pg.Pool;
@@ -44,12 +45,20 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
       });
   }
 
+  // --- cartograph_status ---
+  server.tool(
+    'cartograph_status',
+    'Check index health: when it was last built, how many symbols/files are indexed, and whether a re-index is needed',
+    {},
+    async () => wrap(() => handleStatus({ pool: opts.pool, repoId: opts.repoId }))
+  );
+
   // --- cartograph_find ---
   server.tool(
     'cartograph_find',
     'Search for symbols across the codebase by name or pattern',
     {
-      query: z.string().describe('Search term (supports * wildcards)'),
+      query: z.string().describe('Class or symbol name to search for (e.g. "UserService", "RecurringJobs*"). Always matches anywhere in the qualified name.'),
       kind: z.enum(['class', 'interface', 'trait', 'method', 'function', 'property', 'constant', 'enum']).optional().describe('Filter by symbol kind'),
       limit: z.number().min(1).max(50).optional().describe('Max results (default 20)'),
     },

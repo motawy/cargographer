@@ -16,9 +16,11 @@ export async function handleFind(deps: ToolDeps, params: FindParams): Promise<st
   let pattern = params.query.replace(/\\/g, '\\\\');
   if (pattern.includes('*')) {
     pattern = pattern.replace(/\*/g, '%');
-  } else if (!pattern.includes('%')) {
-    pattern = `%${pattern}%`;
   }
+  // Always ensure leading/trailing % so searches match anywhere in qualified name.
+  // Users search by class name ("UserService") not full namespace ("App\Services\UserService").
+  if (!pattern.startsWith('%')) pattern = `%${pattern}`;
+  if (!pattern.endsWith('%')) pattern = `${pattern}%`;
 
   const results = await symbolRepo.search(repoId, pattern, params.kind, limit);
 
