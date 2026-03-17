@@ -9,6 +9,7 @@ import { handleSymbol } from './tools/symbol.js';
 import { handleDeps } from './tools/deps.js';
 import { handleFlow } from './tools/flow.js';
 import { handleDependents } from './tools/dependents.js';
+import { handleBlastRadius } from './tools/blast-radius.js';
 
 interface ServerOptions {
   pool: pg.Pool;
@@ -85,7 +86,7 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
     async ({ symbol, depth }) => wrap(() => handleDependents(deps, { symbol, depth }))
   );
 
-  // --- cartograph_blast_radius (stub) ---
+  // --- cartograph_blast_radius ---
   server.tool(
     'cartograph_blast_radius',
     'What breaks if this file changes?',
@@ -93,7 +94,7 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
       file: z.string().describe('File path relative to repo root'),
       depth: z.number().min(1).max(5).optional().describe('Transitive impact depth (default 2)'),
     },
-    async () => ({ content: [{ type: 'text' as const, text: 'Not yet implemented.' }] })
+    async ({ file, depth }) => wrap(() => handleBlastRadius(deps, { file, depth }))
   );
 
   // --- cartograph_flow ---
