@@ -10,6 +10,7 @@ import { handleDeps } from './tools/deps.js';
 import { handleFlow } from './tools/flow.js';
 import { handleDependents } from './tools/dependents.js';
 import { handleBlastRadius } from './tools/blast-radius.js';
+import { handleCompare } from './tools/compare.js';
 import { handleStatus } from './tools/status.js';
 
 interface ServerOptions {
@@ -105,6 +106,17 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
       depth: z.number().min(1).max(5).optional().describe('Transitive impact depth (default 2)'),
     },
     async ({ file, depth }) => wrap(() => handleBlastRadius(deps, { file, depth }))
+  );
+
+  // --- cartograph_compare ---
+  server.tool(
+    'cartograph_compare',
+    'Compare two symbols and show the structural delta — what methods/properties one has that the other doesn\'t',
+    {
+      symbolA: z.string().describe('First symbol name (fully or partially qualified)'),
+      symbolB: z.string().describe('Second symbol name (fully or partially qualified)'),
+    },
+    async ({ symbolA, symbolB }) => wrap(() => handleCompare(deps, { symbolA, symbolB }))
   );
 
   // --- cartograph_flow ---

@@ -55,11 +55,12 @@ describe('MCP Server Integration', () => {
     await pool.end();
   });
 
-  it('lists all 7 tools', async () => {
+  it('lists all 8 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map(t => t.name).sort();
     expect(names).toEqual([
       'cartograph_blast_radius',
+      'cartograph_compare',
       'cartograph_dependents',
       'cartograph_deps',
       'cartograph_find',
