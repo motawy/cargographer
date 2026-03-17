@@ -113,6 +113,16 @@ describe('generateRoot', () => {
     expect(result).toContain('interfaces (45% of classes implement one)');
   });
 
+  it('includes Cartograph MCP tools section', () => {
+    const result = generateRoot(makeStats());
+    expect(result).toContain('## Cartograph Tools');
+    expect(result).toContain('cartograph_symbol');
+    expect(result).toContain('cartograph_deps');
+    expect(result).toContain('cartograph_blast_radius');
+    expect(result).toContain('cartograph_find');
+    expect(result).toContain('Use these before grepping');
+  });
+
   it('includes top adopting modules in interface description', () => {
     const stats = makeStats({
       directories: [

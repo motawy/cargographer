@@ -33,6 +33,16 @@ export function generateRoot(stats: RepoStats, conventions?: ConventionsData): s
   lines.push(`- [Dependencies](dependencies.md) — how modules connect (directed graph)`);
   lines.push(`- [Conventions](conventions.md) — coding patterns and style\n`);
 
+  lines.push(`## Cartograph Tools\n`);
+  lines.push(`This project is indexed by Cartograph. Use these MCP tools for cross-cutting queries instead of exploring files manually:\n`);
+  lines.push(`- **cartograph_symbol** \`<name>\` — look up a class/interface/function and its relationships`);
+  lines.push(`- **cartograph_deps** \`<symbol>\` — what does this symbol depend on? (directed graph, configurable depth)`);
+  lines.push(`- **cartograph_dependents** \`<symbol>\` — what depends on this? (reverse dependency lookup)`);
+  lines.push(`- **cartograph_blast_radius** \`<file>\` — what breaks if this file changes?`);
+  lines.push(`- **cartograph_find** \`<query>\` — find symbols across modules by name or pattern`);
+  lines.push(`- **cartograph_flow** \`<entrypoint>\` — trace an execution flow end-to-end\n`);
+  lines.push(`Use these before grepping the codebase. They answer in seconds from the pre-built index.\n`);
+
   let result = lines.join('\n');
   if (result.length > TOKEN_BUDGET_CHARS) {
     result = result.substring(0, TOKEN_BUDGET_CHARS) + '\n\n... (truncated to fit token budget)\n';
