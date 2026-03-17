@@ -45,7 +45,8 @@ export type ReferenceKind =
   | 'static_call'
   | 'type_hint'
   | 'self_call'
-  | 'static_access';
+  | 'static_access'
+  | 'class_reference';
 
 export interface ParsedReference {
   sourceQualifiedName: string;
