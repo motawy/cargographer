@@ -56,13 +56,14 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
   // --- cartograph_find ---
   server.tool(
     'cartograph_find',
-    'Search for symbols across the codebase by name or pattern',
+    'Search for symbols by name. Use kind and path filters to narrow results in large codebases.',
     {
       query: z.string().describe('Class or symbol name to search for (e.g. "UserService", "RecurringJobs*"). Always matches anywhere in the qualified name.'),
       kind: z.enum(['class', 'interface', 'trait', 'method', 'function', 'property', 'constant', 'enum']).optional().describe('Filter by symbol kind'),
+      path: z.string().optional().describe('Filter by file path prefix (e.g. "app/Services", "src/Routes/Root")'),
       limit: z.number().min(1).max(50).optional().describe('Max results (default 20)'),
     },
-    async ({ query, kind, limit }) => wrap(() => handleFind(deps, { query, kind, limit }))
+    async ({ query, kind, path, limit }) => wrap(() => handleFind(deps, { query, kind, path, limit }))
   );
 
   // --- cartograph_symbol ---

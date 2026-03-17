@@ -87,4 +87,11 @@ describe('cartograph_find', () => {
     const result = await handleFind(deps, { query: 'Nonexistent' });
     expect(result).toContain('No symbols found');
   });
+
+  it('filters by file path', async () => {
+    const result = await handleFind(deps, { query: '%', path: 'app/Services' });
+    expect(result).toContain('UserService');
+    expect(result).toContain('OrderService');
+    expect(result).not.toContain('App\\Models\\User'); // User is in app/Models, not app/Services
+  });
 });

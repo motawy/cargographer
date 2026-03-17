@@ -4,6 +4,7 @@ interface FindParams {
   query: string;
   kind?: string;
   limit?: number;
+  path?: string;
 }
 
 export async function handleFind(deps: ToolDeps, params: FindParams): Promise<string> {
@@ -22,15 +23,16 @@ export async function handleFind(deps: ToolDeps, params: FindParams): Promise<st
   if (!pattern.startsWith('%')) pattern = `%${pattern}`;
   if (!pattern.endsWith('%')) pattern = `${pattern}%`;
 
-  const results = await symbolRepo.search(repoId, pattern, params.kind, limit);
+  const results = await symbolRepo.search(repoId, pattern, params.kind, limit, params.path);
 
   if (results.length === 0) {
     return `No symbols found matching "${params.query}".`;
   }
 
   const kindLabel = params.kind ? ` (kind: ${params.kind})` : '';
+  const pathLabel = params.path ? ` in ${params.path}` : '';
   const lines: string[] = [];
-  lines.push(`## Search: "${params.query}"${kindLabel}\n`);
+  lines.push(`## Search: "${params.query}"${kindLabel}${pathLabel}\n`);
   lines.push(`Found ${results.length} match${results.length === 1 ? '' : 'es'}:\n`);
   lines.push('| Symbol | Kind | File | Lines |');
   lines.push('|--------|------|------|-------|');
