@@ -1,0 +1,83 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import pg from 'pg';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { RepoRepository } from '../../src/db/repositories/repo-repository.js';
+import { FileRepository } from '../../src/db/repositories/file-repository.js';
+import { SymbolRepository } from '../../src/db/repositories/symbol-repository.js';
+import { createServer } from '../../src/mcp/server.js';
+import type { ParsedSymbol } from '../../src/types.js';
+
+const TEST_DB = {
+  host: 'localhost', port: 5435,
+  database: 'cartograph_test', user: 'cartograph', password: 'localdev',
+};
+
+describe('MCP Server Integration', () => {
+  let pool: pg.Pool;
+  let client: Client;
+  let repoId: number;
+
+  beforeAll(async () => {
+    pool = new pg.Pool(TEST_DB);
+
+    await pool.query('DELETE FROM symbol_references');
+    await pool.query('DELETE FROM symbols');
+    await pool.query('DELETE FROM files');
+    await pool.query('DELETE FROM repos');
+
+    const repoRepo = new RepoRepository(pool);
+    const fileRepo = new FileRepository(pool);
+    const symbolRepo = new SymbolRepository(pool);
+
+    const repo = await repoRepo.findOrCreate('/test/repo', 'test');
+    repoId = repo.id;
+
+    const f1 = await fileRepo.upsert(repoId, 'app/Foo.php', 'php', 'h1', 10);
+    const sym: ParsedSymbol = {
+      name: 'Foo', qualifiedName: 'App\\Foo',
+      kind: 'class', visibility: null, lineStart: 1, lineEnd: 10,
+      signature: null, returnType: null, docblock: null, children: [], metadata: {},
+    };
+    await symbolRepo.replaceFileSymbols(f1.id, [sym]);
+
+    // Create server + in-memory transport for testing
+    const server = await createServer({ pool, repoId });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    client = new Client({ name: 'test-client', version: '0.1.0' });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+  });
+
+  afterAll(async () => {
+    await client.close();
+    await pool.end();
+  });
+
+  it('lists all 6 tools', async () => {
+    const { tools } = await client.listTools();
+    const names = tools.map(t => t.name).sort();
+    expect(names).toEqual([
+      'cartograph_blast_radius',
+      'cartograph_dependents',
+      'cartograph_deps',
+      'cartograph_find',
+      'cartograph_flow',
+      'cartograph_symbol',
+    ]);
+  });
+
+  it('handles cartograph_find tool call', async () => {
+    const result = await client.callTool({ name: 'cartograph_find', arguments: { query: 'Foo' } });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('App\\Foo');
+    expect(text).toContain('class');
+  });
+
+  it('handles tool call with not-found result', async () => {
+    const result = await client.callTool({ name: 'cartograph_symbol', arguments: { name: 'Nonexistent' } });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('not found');
+  });
+});
