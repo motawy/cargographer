@@ -8,6 +8,7 @@ import { handleFind } from './tools/find.js';
 import { handleSymbol } from './tools/symbol.js';
 import { handleDeps } from './tools/deps.js';
 import { handleFlow } from './tools/flow.js';
+import { handleDependents } from './tools/dependents.js';
 
 interface ServerOptions {
   pool: pg.Pool;
@@ -73,7 +74,7 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
     async ({ symbol, depth }) => wrap(() => handleDeps(deps, { symbol, depth }))
   );
 
-  // --- cartograph_dependents (stub) ---
+  // --- cartograph_dependents ---
   server.tool(
     'cartograph_dependents',
     'What depends on this symbol? (reverse dependency lookup)',
@@ -81,7 +82,7 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
       symbol: z.string().describe('Fully qualified symbol name'),
       depth: z.number().min(1).max(5).optional().describe('Transitive depth (default 1)'),
     },
-    async () => ({ content: [{ type: 'text' as const, text: 'Not yet implemented.' }] })
+    async ({ symbol, depth }) => wrap(() => handleDependents(deps, { symbol, depth }))
   );
 
   // --- cartograph_blast_radius (stub) ---
