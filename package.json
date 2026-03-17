@@ -31,6 +31,7 @@
   },
   "license": "ISC",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "commander": "^14.0.3",
     "dotenv": "^17.3.1",
     "fast-glob": "^3.3.3",
@@ -38,7 +39,8 @@
     "pg": "^8.20.0",
     "tree-sitter": "^0.25.0",
     "tree-sitter-php": "^0.24.2",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
