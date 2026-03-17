@@ -167,6 +167,14 @@ export class SymbolRepository {
     return rows.map((r: Record<string, unknown>) => this.toRecord(r));
   }
 
+  async findChildren(parentSymbolId: number): Promise<SymbolRecord[]> {
+    const { rows } = await this.pool.query(
+      'SELECT * FROM symbols WHERE parent_symbol_id = $1 ORDER BY line_start',
+      [parentSymbolId]
+    );
+    return rows.map((r: Record<string, unknown>) => this.toRecord(r));
+  }
+
   private toRecord(row: Record<string, unknown>): SymbolRecord {
     return {
       id: row.id as number,
