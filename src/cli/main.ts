@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from 'commander';
 import { createIndexCommand } from './index.js';
 import { createUsesCommand } from './uses.js';

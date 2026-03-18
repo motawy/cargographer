@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "tsx src/cli/main.ts",
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run tests/integration",
