@@ -231,4 +231,73 @@ describe('cartograph_compare', () => {
 
     rmSync(tmpDir, { recursive: true });
   });
+
+  it('flags shared methods with different implementations', async () => {
+    const repoRepo = new RepoRepository(pool);
+    const fileRepo = new FileRepository(pool);
+    const symbolRepo = new SymbolRepository(pool);
+    const refRepo = new ReferenceRepository(pool);
+
+    // Create temp files with shared methods that have different bodies
+    const tmpDir = '/tmp/cartograph-shared-diff-test';
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(`${tmpDir}/builder-a.php`, [
+      '<?php',
+      'class BuilderA {',
+      '    protected function getReferenceID()',
+      '    {',
+      "        return (int) $this->args['jobID'];",
+      '    }',
+      '    public function getName(): string',
+      '    {',
+      "        return 'JobNotes';",
+      '    }',
+      '}',
+    ].join('\n'));
+    writeFileSync(`${tmpDir}/builder-b.php`, [
+      '<?php',
+      'class BuilderB {',
+      '    protected function getReferenceID()',
+      '    {',
+      "        return (int) $this->args['recurringJobID'];",
+      '    }',
+      '    public function getName(): string',
+      '    {',
+      "        return 'RecurringJobNotes';",
+      '    }',
+      '}',
+    ].join('\n'));
+
+    const repo = await repoRepo.findOrCreate(tmpDir, 'test-shared-diff');
+    const f1 = await fileRepo.upsert(repo.id, 'builder-a.php', 'php', 'sd1', 11);
+    const f2 = await fileRepo.upsert(repo.id, 'builder-b.php', 'php', 'sd2', 11);
+
+    await symbolRepo.replaceFileSymbols(f1.id, [
+      makeClassWithMethods('BuilderA', 'Test\\BuilderA', [
+        { name: 'getReferenceID', line: 3 },
+        { name: 'getName', line: 7 },
+      ]),
+    ]);
+    await symbolRepo.replaceFileSymbols(f2.id, [
+      makeClassWithMethods('BuilderB', 'Test\\BuilderB', [
+        { name: 'getReferenceID', line: 3 },
+        { name: 'getName', line: 7 },
+      ]),
+    ]);
+
+    const toolDeps: ToolDeps = { repoId: repo.id, repoPath: tmpDir, symbolRepo, refRepo };
+    const result = await handleCompare(toolDeps, {
+      symbolA: 'Test\\BuilderA',
+      symbolB: 'Test\\BuilderB',
+    });
+
+    // Both methods exist in both classes but have different bodies
+    expect(result).toContain('differs');
+    expect(result).toContain("$this->args['jobID']");
+    expect(result).toContain("$this->args['recurringJobID']");
+    expect(result).toContain("'JobNotes'");
+    expect(result).toContain("'RecurringJobNotes'");
+
+    rmSync(tmpDir, { recursive: true });
+  });
 });

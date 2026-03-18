@@ -43,11 +43,12 @@ export async function handleCompare(deps: ToolDeps, params: CompareParams): Prom
   const onlyInB = childrenB.filter(c => !namesA.has(c.name));
   const shared = childrenA.filter(c => namesB.has(c.name));
 
-  // Pre-load method bodies for delta methods (short methods only)
+  // Pre-load method bodies for delta AND shared methods (short methods only)
   const bodyMap = new Map<number, string>();
   if (repoPath) {
-    const deltaSymbols = [...onlyInA, ...onlyInB];
-    await loadMethodBodies(deltaSymbols, repoPath, symbolRepo, bodyMap);
+    // Load bodies for all children — delta methods get inlined,
+    // shared methods get diffed to flag behavioral differences
+    await loadMethodBodies([...childrenA, ...childrenB], repoPath, symbolRepo, bodyMap);
   }
 
   const lines: string[] = [];
@@ -73,24 +74,58 @@ export async function handleCompare(deps: ToolDeps, params: CompareParams): Prom
   }
   lines.push('');
 
-  lines.push(`### Shared (${shared.length}):`);
+  // Shared methods: split into identical vs different implementations
+  const sharedIdentical: string[] = [];
+  const sharedDifferent: string[] = [];
+
   for (const c of shared) {
     const refs = refsMap.get(c.id);
-    const bChild = childrenB.find(b => b.name === c.name);
-    const refsB = bChild ? refsMap.get(bChild.id) : undefined;
+    const bChild = childrenB.find(b => b.name === c.name)!;
+    const refsB = refsMap.get(bChild.id);
     const refHintA = formatRefHint(refs);
     const refHintB = formatRefHint(refsB);
-    if (refHintA || refHintB) {
-      const aLabel = refHintA || '?';
-      const bLabel = refHintB || '?';
-      if (aLabel === bLabel) {
-        lines.push(`- ${c.name}() → ${aLabel}`);
-      } else {
-        lines.push(`- ${c.name}() → A: ${aLabel} | B: ${bLabel}`);
+    const bodyA = bodyMap.get(c.id);
+    const bodyB = bodyMap.get(bChild.id);
+
+    // Check if implementations differ (by body or by wiring)
+    const wiringDiffers = (refHintA || refHintB) && refHintA !== refHintB;
+    const bodyDiffers = bodyA && bodyB && bodyA !== bodyB;
+
+    if (wiringDiffers || bodyDiffers) {
+      // Show the difference
+      let line = `- **${c.name}()** ⚠ differs`;
+      if (wiringDiffers) {
+        line += `\n  A: → ${refHintA || '(none)'}\n  B: → ${refHintB || '(none)'}`;
       }
+      if (bodyDiffers) {
+        line += `\n  A (line ${c.lineStart}):\n  \`\`\`\n  ${bodyA}\n  \`\`\``;
+        line += `\n  B (line ${bChild.lineStart}):\n  \`\`\`\n  ${bodyB}\n  \`\`\``;
+      } else if (wiringDiffers && !bodyA && !bodyB) {
+        // No bodies available but wiring differs — already shown above
+      }
+      sharedDifferent.push(line);
     } else {
-      lines.push(`- ${c.name}()`);
+      // Identical or no info to compare
+      if (refHintA) {
+        sharedIdentical.push(`- ${c.name}() → ${refHintA}`);
+      } else {
+        sharedIdentical.push(`- ${c.name}()`);
+      }
     }
+  }
+
+  if (sharedDifferent.length > 0) {
+    lines.push(`### Shared — different implementations (${sharedDifferent.length}):`);
+    lines.push(...sharedDifferent);
+    lines.push('');
+  }
+
+  if (sharedIdentical.length > 0) {
+    lines.push(`### Shared — identical (${sharedIdentical.length}):`);
+    lines.push(...sharedIdentical);
+  } else if (sharedDifferent.length === 0 && shared.length > 0) {
+    lines.push(`### Shared (${shared.length}):`);
+    lines.push('(all identical or no body data available)');
   }
 
   return lines.join('\n');

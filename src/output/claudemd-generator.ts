@@ -33,7 +33,7 @@ export function generateClaudeMdSection(stats: RepoStats, conventions: Conventio
   lines.push('| `cartograph_dependents` | Reverse dependency lookup — what depends on this symbol? | `depth`: 1-5 (default 1) |');
   lines.push('| `cartograph_blast_radius` | What breaks if this file changes? | `depth`: 1-5 (default 2) |');
   lines.push('| `cartograph_flow` | Trace execution flow from an entrypoint. Follows calls, `::class` refs, and parent class template methods (resolves `$this->getX()` through child overrides). | `depth`: 1-15 (default 5) |');
-  lines.push('| `cartograph_compare` | Structural diff: methods in A but not B, shared methods with wiring differences. Inlines short method bodies (≤5 lines) so you don\'t need a follow-up read. Shows `::class` wiring targets per method. | `symbolA`, `symbolB`: fully or partially qualified |');
+  lines.push('| `cartograph_compare` | Structural diff: methods in A but not B, **and behavioral diff of shared methods** — flags shared methods with different implementations by inlining both bodies side-by-side. Catches runtime differences like `$this->args[\'jobID\']` vs `$this->args[\'recurringJobID\']`. Shows `::class` wiring targets per method. | `symbolA`, `symbolB`: fully or partially qualified |');
   lines.push('');
 
   // Top directories for orientation
