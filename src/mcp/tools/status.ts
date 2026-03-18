@@ -1,51 +1,47 @@
-import type pg from 'pg';
+import type Database from 'better-sqlite3';
 
 interface StatusDeps {
-  pool: pg.Pool;
+  db: Database.Database;
   repoId: number;
 }
 
-export async function handleStatus(deps: StatusDeps): Promise<string> {
-  const { pool, repoId } = deps;
+export function handleStatus(deps: StatusDeps): string {
+  const { db, repoId } = deps;
 
-  const { rows: [repo] } = await pool.query(
-    'SELECT name, path, last_indexed_at FROM repos WHERE id = $1',
-    [repoId]
-  );
+  const repo = db.prepare(
+    'SELECT name, path, last_indexed_at FROM repos WHERE id = ?'
+  ).get(repoId) as Record<string, unknown>;
 
-  const { rows: [fileCounts] } = await pool.query(
-    `SELECT COUNT(*)::int AS total_files FROM files WHERE repo_id = $1`,
-    [repoId]
-  );
+  const fileCounts = db.prepare(
+    'SELECT COUNT(*) AS total_files FROM files WHERE repo_id = ?'
+  ).get(repoId) as Record<string, number>;
 
-  const { rows: [symbolCounts] } = await pool.query(
+  const symbolCounts = db.prepare(
     `SELECT
-       COUNT(*)::int AS total,
-       COUNT(*) FILTER (WHERE s.kind = 'class')::int AS classes,
-       COUNT(*) FILTER (WHERE s.kind = 'method')::int AS methods,
-       COUNT(*) FILTER (WHERE s.kind = 'interface')::int AS interfaces,
-       COUNT(*) FILTER (WHERE s.kind = 'trait')::int AS traits,
-       COUNT(*) FILTER (WHERE s.kind = 'function')::int AS functions
+       COUNT(*) AS total,
+       SUM(CASE WHEN s.kind = 'class' THEN 1 ELSE 0 END) AS classes,
+       SUM(CASE WHEN s.kind = 'method' THEN 1 ELSE 0 END) AS methods,
+       SUM(CASE WHEN s.kind = 'interface' THEN 1 ELSE 0 END) AS interfaces,
+       SUM(CASE WHEN s.kind = 'trait' THEN 1 ELSE 0 END) AS traits,
+       SUM(CASE WHEN s.kind = 'function' THEN 1 ELSE 0 END) AS functions
      FROM symbols s
      JOIN files f ON s.file_id = f.id
-     WHERE f.repo_id = $1`,
-    [repoId]
-  );
+     WHERE f.repo_id = ?`
+  ).get(repoId) as Record<string, number>;
 
-  const { rows: [refCounts] } = await pool.query(
+  const refCounts = db.prepare(
     `SELECT
-       COUNT(*)::int AS total,
-       COUNT(*) FILTER (WHERE sr.target_symbol_id IS NOT NULL)::int AS resolved,
-       COUNT(*) FILTER (WHERE sr.target_symbol_id IS NULL)::int AS unresolved
+       COUNT(*) AS total,
+       SUM(CASE WHEN sr.target_symbol_id IS NOT NULL THEN 1 ELSE 0 END) AS resolved,
+       SUM(CASE WHEN sr.target_symbol_id IS NULL THEN 1 ELSE 0 END) AS unresolved
      FROM symbol_references sr
      JOIN symbols s ON sr.source_symbol_id = s.id
      JOIN files f ON s.file_id = f.id
-     WHERE f.repo_id = $1`,
-    [repoId]
-  );
+     WHERE f.repo_id = ?`
+  ).get(repoId) as Record<string, number>;
 
   const lastIndexed = repo.last_indexed_at
-    ? new Date(repo.last_indexed_at)
+    ? new Date(repo.last_indexed_at as string)
     : null;
 
   const lines: string[] = [];
@@ -57,7 +53,7 @@ export async function handleStatus(deps: StatusDeps): Promise<string> {
     lines.push(`Last indexed: ${lastIndexed.toISOString()} (${ago})`);
     const hoursAgo = (Date.now() - lastIndexed.getTime()) / (1000 * 60 * 60);
     if (hoursAgo > 24) {
-      lines.push(`⚠️  Index is ${Math.floor(hoursAgo / 24)} day(s) old. Consider re-running \`cartograph index\`.`);
+      lines.push(`\u26a0\ufe0f  Index is ${Math.floor(hoursAgo / 24)} day(s) old. Consider re-running \`cartograph index\`.`);
     }
   } else {
     lines.push(`Last indexed: unknown`);

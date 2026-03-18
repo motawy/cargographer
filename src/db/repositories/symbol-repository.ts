@@ -1,4 +1,4 @@
-import type pg from 'pg';
+import type Database from 'better-sqlite3';
 import type { ParsedSymbol } from '../../types.js';
 
 export interface SymbolRecord {
@@ -18,183 +18,166 @@ export interface SymbolRecord {
 }
 
 export class SymbolRepository {
-  constructor(private pool: pg.Pool) {}
+  constructor(private db: Database.Database) {}
 
-  async replaceFileSymbols(
+  replaceFileSymbols(
     fileId: number,
     symbols: ParsedSymbol[]
-  ): Promise<Map<string, number>> {
+  ): Map<string, number> {
     const idMap = new Map<string, number>();
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
 
-      // Delete existing symbols for this file (CASCADE handles references)
-      await client.query('DELETE FROM symbols WHERE file_id = $1', [fileId]);
+    const doReplace = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM symbols WHERE file_id = ?').run(fileId);
 
-      // Insert new symbols
       for (const symbol of symbols) {
-        await this.insertSymbol(client, fileId, symbol, null, idMap);
+        this.insertSymbol(fileId, symbol, null, idMap);
       }
+    });
 
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    doReplace();
     return idMap;
   }
 
-  private async insertSymbol(
-    client: pg.PoolClient,
+  private insertSymbol(
     fileId: number,
     symbol: ParsedSymbol,
     parentId: number | null,
     idMap: Map<string, number>
-  ): Promise<number> {
-    const { rows } = await client.query(
+  ): number {
+    const info = this.db.prepare(
       `INSERT INTO symbols
          (file_id, kind, name, qualified_name, visibility, parent_symbol_id,
           line_start, line_end, signature, return_type, docblock, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING id`,
-      [
-        fileId,
-        symbol.kind,
-        symbol.name,
-        symbol.qualifiedName,
-        symbol.visibility,
-        parentId,
-        symbol.lineStart,
-        symbol.lineEnd,
-        symbol.signature,
-        symbol.returnType,
-        symbol.docblock,
-        JSON.stringify(symbol.metadata),
-      ]
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      fileId,
+      symbol.kind,
+      symbol.name,
+      symbol.qualifiedName,
+      symbol.visibility,
+      parentId,
+      symbol.lineStart,
+      symbol.lineEnd,
+      symbol.signature,
+      symbol.returnType,
+      symbol.docblock,
+      JSON.stringify(symbol.metadata),
     );
 
-    const symbolId = rows[0].id as number;
+    const symbolId = Number(info.lastInsertRowid);
     if (symbol.qualifiedName) {
       idMap.set(symbol.qualifiedName, symbolId);
     }
 
-    // Insert children (methods, properties, constants of a class)
     for (const child of symbol.children) {
-      await this.insertSymbol(client, fileId, child, symbolId, idMap);
+      this.insertSymbol(fileId, child, symbolId, idMap);
     }
 
     return symbolId;
   }
 
-  async findByFile(fileId: number): Promise<SymbolRecord[]> {
-    const { rows } = await this.pool.query(
-      'SELECT * FROM symbols WHERE file_id = $1 ORDER BY line_start',
-      [fileId]
-    );
-    return rows.map((r: Record<string, unknown>) => this.toRecord(r));
+  findByFile(fileId: number): SymbolRecord[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM symbols WHERE file_id = ? ORDER BY line_start'
+    ).all(fileId) as Record<string, unknown>[];
+    return rows.map(r => this.toRecord(r));
   }
 
-  async countByRepo(repoId: number): Promise<number> {
-    const { rows } = await this.pool.query(
-      `SELECT COUNT(*)::int AS count FROM symbols s
+  countByRepo(repoId: number): number {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM symbols s
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1`,
-      [repoId]
-    );
-    return rows[0].count as number;
+       WHERE f.repo_id = ?`
+    ).get(repoId) as { count: number };
+    return row.count;
   }
 
-  async findByQualifiedName(repoId: number, qualifiedName: string): Promise<SymbolRecord | null> {
-    const { rows } = await this.pool.query(
+  findByQualifiedName(repoId: number, qualifiedName: string): SymbolRecord | null {
+    const row = this.db.prepare(
       `SELECT s.* FROM symbols s
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND s.qualified_name = $2`,
-      [repoId, qualifiedName]
-    );
-    if (rows.length === 0) return null;
-    return this.toRecord(rows[0]);
+       WHERE f.repo_id = ? AND s.qualified_name = ? COLLATE NOCASE`
+    ).get(repoId, qualifiedName) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.toRecord(row);
   }
 
-  async findById(id: number): Promise<SymbolRecord | null> {
-    const { rows } = await this.pool.query(
-      'SELECT * FROM symbols WHERE id = $1',
-      [id]
-    );
-    if (rows.length === 0) return null;
-    return this.toRecord(rows[0]);
+  findById(id: number): SymbolRecord | null {
+    const row = this.db.prepare(
+      'SELECT * FROM symbols WHERE id = ?'
+    ).get(id) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.toRecord(row);
   }
 
-  async search(
+  search(
     repoId: number,
     query: string,
     kind?: string,
     limit: number = 20,
     path?: string
-  ): Promise<(SymbolRecord & { filePath: string })[]> {
+  ): (SymbolRecord & { filePath: string })[] {
     const params: (string | number)[] = [repoId, query];
     let sql = `SELECT s.*, f.path AS file_path FROM symbols s
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND s.qualified_name ILIKE $2`;
+       WHERE f.repo_id = ? AND s.qualified_name LIKE ?`;
     if (kind) {
       params.push(kind);
-      sql += ` AND s.kind = $${params.length}`;
+      sql += ` AND s.kind = ?`;
     }
     if (path) {
       params.push(`%${path}%`);
-      sql += ` AND f.path ILIKE $${params.length}`;
+      sql += ` AND f.path LIKE ?`;
     }
     params.push(limit);
-    sql += ` ORDER BY s.qualified_name LIMIT $${params.length}`;
+    sql += ` ORDER BY s.qualified_name LIMIT ?`;
 
-    const { rows } = await this.pool.query(sql, params);
-    return rows.map((r: Record<string, unknown>) => ({
+    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    return rows.map(r => ({
       ...this.toRecord(r),
       filePath: r.file_path as string,
     }));
   }
 
-  async getFilePath(fileId: number): Promise<string | null> {
-    const { rows } = await this.pool.query(
-      'SELECT path FROM files WHERE id = $1',
-      [fileId]
-    );
-    return rows.length > 0 ? (rows[0].path as string) : null;
+  getFilePath(fileId: number): string | null {
+    const row = this.db.prepare(
+      'SELECT path FROM files WHERE id = ?'
+    ).get(fileId) as { path: string } | undefined;
+    return row ? row.path : null;
   }
 
-  async suggestPaths(repoId: number, pathFragment: string): Promise<string[]> {
-    // Find distinct directory paths containing the fragment, for "did you mean?" suggestions
-    const { rows } = await this.pool.query(
-      `SELECT DISTINCT
-         regexp_replace(path, '/[^/]+$', '') AS dir_path
-       FROM files
-       WHERE repo_id = $1 AND path ILIKE $2
-       ORDER BY dir_path
-       LIMIT 5`,
-      [repoId, `%${pathFragment}%`]
-    );
-    return rows.map((r: Record<string, unknown>) => r.dir_path as string);
+  suggestPaths(repoId: number, pathFragment: string): string[] {
+    const rows = this.db.prepare(
+      `SELECT DISTINCT path FROM files
+       WHERE repo_id = ? AND path LIKE ?
+       LIMIT 20`
+    ).all(repoId, `%${pathFragment}%`) as { path: string }[];
+
+    const dirs = new Set<string>();
+    for (const row of rows) {
+      const lastSlash = row.path.lastIndexOf('/');
+      if (lastSlash > 0) {
+        dirs.add(row.path.substring(0, lastSlash));
+      }
+    }
+    return [...dirs].sort().slice(0, 5);
   }
 
-  async findByFilePath(repoId: number, filePath: string): Promise<SymbolRecord[]> {
-    const { rows } = await this.pool.query(
+  findByFilePath(repoId: number, filePath: string): SymbolRecord[] {
+    const rows = this.db.prepare(
       `SELECT s.* FROM symbols s
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND f.path = $2
-       ORDER BY s.line_start`,
-      [repoId, filePath]
-    );
-    return rows.map((r: Record<string, unknown>) => this.toRecord(r));
+       WHERE f.repo_id = ? AND f.path = ?
+       ORDER BY s.line_start`
+    ).all(repoId, filePath) as Record<string, unknown>[];
+    return rows.map(r => this.toRecord(r));
   }
 
-  async findChildren(parentSymbolId: number): Promise<SymbolRecord[]> {
-    const { rows } = await this.pool.query(
-      'SELECT * FROM symbols WHERE parent_symbol_id = $1 ORDER BY line_start',
-      [parentSymbolId]
-    );
-    return rows.map((r: Record<string, unknown>) => this.toRecord(r));
+  findChildren(parentSymbolId: number): SymbolRecord[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM symbols WHERE parent_symbol_id = ? ORDER BY line_start'
+    ).all(parentSymbolId) as Record<string, unknown>[];
+    return rows.map(r => this.toRecord(r));
   }
 
   private toRecord(row: Record<string, unknown>): SymbolRecord {
@@ -211,7 +194,7 @@ export class SymbolRepository {
       signature: (row.signature as string) || null,
       returnType: (row.return_type as string) || null,
       docblock: (row.docblock as string) || null,
-      metadata: (row.metadata as Record<string, unknown>) || {},
+      metadata: row.metadata ? JSON.parse(row.metadata as string) : {},
     };
   }
 }

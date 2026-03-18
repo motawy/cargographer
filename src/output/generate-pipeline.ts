@@ -1,4 +1,4 @@
-import type pg from 'pg';
+import type Database from 'better-sqlite3';
 import { resolve } from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
 import { RepoRepository } from '../db/repositories/repo-repository.js';
@@ -76,197 +76,185 @@ export interface ConventionsData {
   methodNames: string[];
 }
 
+/** Extract top-2-level directory: "app/Services/Foo.php" → "app/Services" */
+function extractTopDir(filePath: string): string {
+  const parts = filePath.split('/');
+  if (parts.length <= 2) return parts[0];
+  return parts[0] + '/' + parts[1];
+}
+
 export class GeneratePipeline {
   private repoRepo: RepoRepository;
 
-  constructor(private pool: pg.Pool) {
-    this.repoRepo = new RepoRepository(pool);
+  constructor(private db: Database.Database) {
+    this.repoRepo = new RepoRepository(db);
   }
 
-  async run(repoPath: string, opts: GenerateOptions = {}): Promise<void> {
+  run(repoPath: string, opts: GenerateOptions = {}): void {
     const absPath = resolve(repoPath);
     const outputDir = opts.outputDir || `${absPath}/.cartograph`;
 
-    // 1. Find the repo in the DB
-    const repo = await this.repoRepo.findByPath(absPath);
+    const repo = this.repoRepo.findByPath(absPath);
     if (!repo) {
       throw new GenerateError(
         `Repository not indexed: ${absPath}. Run \`cartograph index <path>\` first.`
       );
     }
 
-    // 2. Check for empty index
-    const { rows: fileCount } = await this.pool.query(
-      'SELECT COUNT(*)::int AS count FROM files WHERE repo_id = $1',
-      [repo.id]
-    );
-    if ((fileCount[0].count as number) === 0) {
+    const fileCount = this.db.prepare(
+      'SELECT COUNT(*) AS count FROM files WHERE repo_id = ?'
+    ).get(repo.id) as { count: number };
+    if (fileCount.count === 0) {
       throw new GenerateError(
         `No indexed data found for ${absPath}. Run \`cartograph index <path>\` first.`
       );
     }
 
-    // 3. Query data and generate files
     mkdirSync(outputDir, { recursive: true });
 
-    const repoStats = await this.queryRepoStats(repo.id);
-    const conventions = await this.queryConventions(repo.id);
+    const repoStats = this.queryRepoStats(repo.id);
+    const conventions = this.queryConventions(repo.id);
 
     writeFileSync(`${outputDir}/CLAUDE.md`, HEADER + generateRoot(repoStats, conventions));
 
-    const modules = await this.queryModules(repo.id);
+    const modules = this.queryModules(repo.id);
     writeFileSync(`${outputDir}/modules.md`, HEADER + generateModules(modules));
 
-    const deps = await this.queryDependencies(repo.id);
+    const deps = this.queryDependencies(repo.id);
     writeFileSync(`${outputDir}/dependencies.md`, HEADER + generateDeps(deps));
 
     writeFileSync(`${outputDir}/conventions.md`, HEADER + generateConventions(conventions));
 
-    // 4. Print summary
-    console.log('\n✅ Generated .cartograph/CLAUDE.md + 3 topic files');
+    console.log('\n\u2705 Generated .cartograph/CLAUDE.md + 3 topic files');
     console.log('   Add this to your root CLAUDE.md:');
     console.log('   Also read: .cartograph/CLAUDE.md\n');
   }
 
-  async generateClaudeMdContent(repoPath: string): Promise<string> {
+  generateClaudeMdContent(repoPath: string): string {
     const absPath = resolve(repoPath);
-    const repo = await this.repoRepo.findByPath(absPath);
+    const repo = this.repoRepo.findByPath(absPath);
     if (!repo) {
       throw new GenerateError(
         `Repository not indexed: ${absPath}. Run \`cartograph index <path>\` first.`
       );
     }
 
-    const { rows: fileCount } = await this.pool.query(
-      'SELECT COUNT(*)::int AS count FROM files WHERE repo_id = $1',
-      [repo.id]
-    );
-    if ((fileCount[0].count as number) === 0) {
+    const fileCount = this.db.prepare(
+      'SELECT COUNT(*) AS count FROM files WHERE repo_id = ?'
+    ).get(repo.id) as { count: number };
+    if (fileCount.count === 0) {
       throw new GenerateError(
         `No indexed data found for ${absPath}. Run \`cartograph index <path>\` first.`
       );
     }
 
-    const stats = await this.queryRepoStats(repo.id);
-    const conventions = await this.queryConventions(repo.id);
+    const stats = this.queryRepoStats(repo.id);
+    const conventions = this.queryConventions(repo.id);
     return generateClaudeMdSection(stats, conventions);
   }
 
-  private async queryRepoStats(repoId: number): Promise<RepoStats> {
-    const { rows: fileCounts } = await this.pool.query(
-      'SELECT COUNT(*)::int AS count, MAX(language) AS language FROM files WHERE repo_id = $1',
-      [repoId]
-    );
+  private queryRepoStats(repoId: number): RepoStats {
+    const fileCounts = this.db.prepare(
+      'SELECT COUNT(*) AS count, MAX(language) AS language FROM files WHERE repo_id = ?'
+    ).get(repoId) as Record<string, unknown>;
 
-    const { rows: symbolCounts } = await this.pool.query(
-      `SELECT COUNT(*)::int AS count FROM symbols s
-       JOIN files f ON s.file_id = f.id WHERE f.repo_id = $1`,
-      [repoId]
-    );
+    const symbolCounts = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM symbols s
+       JOIN files f ON s.file_id = f.id WHERE f.repo_id = ?`
+    ).get(repoId) as { count: number };
 
-    const { rows: refCounts } = await this.pool.query(
-      `SELECT COUNT(*)::int AS count FROM symbol_references sr
+    const refCounts = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM symbol_references sr
        JOIN symbols s ON sr.source_symbol_id = s.id
-       JOIN files f ON s.file_id = f.id WHERE f.repo_id = $1`,
-      [repoId]
-    );
+       JOIN files f ON s.file_id = f.id WHERE f.repo_id = ?`
+    ).get(repoId) as { count: number };
 
-    const { rows: dirRows } = await this.pool.query(
-      `SELECT
-         split_part(f.path, '/', 1) ||
-           CASE WHEN position('/' in f.path) > 0
-                THEN '/' || split_part(f.path, '/', 2)
-                ELSE '' END AS dir,
-         COUNT(DISTINCT f.id)::int AS file_count,
-         COUNT(s.id)::int AS symbol_count,
-         COUNT(s.id) FILTER (WHERE s.kind = 'class')::int AS class_count,
-         array_agg(DISTINCT s.kind) FILTER (WHERE s.kind IN ('class','interface','trait','enum')) AS dominant_kinds
+    // Directory stats: query files+symbols, aggregate in JS
+    const dirRows = this.db.prepare(
+      `SELECT f.id AS file_id, f.path, s.id AS symbol_id, s.kind
        FROM files f
        LEFT JOIN symbols s ON s.file_id = f.id
-       WHERE f.repo_id = $1
-       GROUP BY dir
-       ORDER BY symbol_count DESC`,
-      [repoId]
-    );
+       WHERE f.repo_id = ?`
+    ).all(repoId) as { file_id: number; path: string; symbol_id: number | null; kind: string | null }[];
+
+    const dirMap = new Map<string, { files: Set<number>; symbols: number; classes: number; kinds: Set<string> }>();
+    for (const row of dirRows) {
+      const dir = extractTopDir(row.path);
+      const entry = dirMap.get(dir) || { files: new Set(), symbols: 0, classes: 0, kinds: new Set() };
+      entry.files.add(row.file_id);
+      if (row.symbol_id) {
+        entry.symbols++;
+        if (row.kind === 'class') entry.classes++;
+        if (row.kind && ['class', 'interface', 'trait', 'enum'].includes(row.kind)) {
+          entry.kinds.add(row.kind);
+        }
+      }
+      dirMap.set(dir, entry);
+    }
+
+    const directories = [...dirMap.entries()]
+      .map(([path, d]) => ({
+        path,
+        fileCount: d.files.size,
+        symbolCount: d.symbols,
+        classCount: d.classes,
+        dominantKinds: [...d.kinds],
+      }))
+      .sort((a, b) => b.symbolCount - a.symbolCount);
 
     return {
-      totalFiles: fileCounts[0].count as number,
-      totalSymbols: symbolCounts[0].count as number,
-      totalReferences: refCounts[0].count as number,
-      language: (fileCounts[0].language as string) || 'unknown',
-      directories: dirRows.map(r => ({
-        path: r.dir as string,
-        fileCount: r.file_count as number,
-        symbolCount: r.symbol_count as number,
-        classCount: r.class_count as number,
-        dominantKinds: (r.dominant_kinds as string[]) || [],
-      })),
+      totalFiles: (fileCounts as { count: number }).count,
+      totalSymbols: symbolCounts.count,
+      totalReferences: refCounts.count,
+      language: ((fileCounts as { language: string }).language) || 'unknown',
+      directories,
     };
   }
 
-  private async queryModules(repoId: number): Promise<ModuleInfo[]> {
-    const { rows } = await this.pool.query(
-      `SELECT
-         s.qualified_name,
-         s.kind,
-         f.path AS file_path,
-         (s.line_end - s.line_start + 1) AS lines_of_code,
-         split_part(f.path, '/', 1) ||
-           CASE WHEN position('/' in f.path) > 0
-                THEN '/' || split_part(f.path, '/', 2)
-                ELSE '' END AS module_dir,
-         (SELECT COUNT(*)::int FROM symbol_references WHERE target_symbol_id = s.id) AS ref_count,
-         COALESCE(
-           (SELECT array_agg(COALESCE(ts.qualified_name, sr.target_qualified_name))
-            FROM symbol_references sr
-            LEFT JOIN symbols ts ON sr.target_symbol_id = ts.id
-            WHERE sr.source_symbol_id = s.id AND sr.reference_kind = 'implementation'),
-           '{}'
-         ) AS implements,
-         (SELECT COALESCE(ts.qualified_name, sr.target_qualified_name)
-          FROM symbol_references sr
-          LEFT JOIN symbols ts ON sr.target_symbol_id = ts.id
-          WHERE sr.source_symbol_id = s.id AND sr.reference_kind = 'inheritance'
-          LIMIT 1) AS extends_from,
-         COALESCE(
-           (SELECT array_agg(COALESCE(ts.qualified_name, sr.target_qualified_name))
-            FROM symbol_references sr
-            LEFT JOIN symbols ts ON sr.target_symbol_id = ts.id
-            WHERE sr.source_symbol_id = s.id AND sr.reference_kind = 'trait_use'),
-           '{}'
-         ) AS uses_traits
+  private queryModules(repoId: number): ModuleInfo[] {
+    const rows = this.db.prepare(
+      `SELECT s.id, s.qualified_name, s.kind, f.path AS file_path,
+              (s.line_end - s.line_start + 1) AS lines_of_code
        FROM symbols s
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1
-         AND s.kind IN ('class', 'interface', 'trait', 'enum')
+       WHERE f.repo_id = ? AND s.kind IN ('class', 'interface', 'trait', 'enum')
          AND s.parent_symbol_id IS NULL
-       ORDER BY module_dir, ref_count DESC`,
-      [repoId]
+       ORDER BY f.path`
+    ).all(repoId) as Record<string, unknown>[];
+
+    const refCountStmt = this.db.prepare(
+      'SELECT COUNT(*) AS count FROM symbol_references WHERE target_symbol_id = ?'
+    );
+    const relStmt = this.db.prepare(
+      `SELECT sr.reference_kind, COALESCE(ts.qualified_name, sr.target_qualified_name) AS target_name
+       FROM symbol_references sr
+       LEFT JOIN symbols ts ON sr.target_symbol_id = ts.id
+       WHERE sr.source_symbol_id = ? AND sr.reference_kind IN ('implementation', 'inheritance', 'trait_use')`
     );
 
     const moduleMap = new Map<string, { symbols: ModuleSymbol[]; filePaths: Set<string> }>();
+
     for (const row of rows) {
-      const dir = row.module_dir as string;
+      const dir = extractTopDir(row.file_path as string);
+      const refCount = (refCountStmt.get(row.id) as { count: number }).count;
+      const rels = relStmt.all(row.id) as { reference_kind: string; target_name: string }[];
+
       const entry = moduleMap.get(dir) || { symbols: [], filePaths: new Set() };
       entry.filePaths.add(row.file_path as string);
       entry.symbols.push({
         qualifiedName: row.qualified_name as string,
         kind: row.kind as string,
         linesOfCode: row.lines_of_code as number,
-        implements: (row.implements as string[]) || [],
-        extends: (row.extends_from as string) || null,
-        traits: (row.uses_traits as string[]) || [],
-        referenceCount: row.ref_count as number,
+        implements: rels.filter(r => r.reference_kind === 'implementation').map(r => r.target_name),
+        extends: rels.find(r => r.reference_kind === 'inheritance')?.target_name || null,
+        traits: rels.filter(r => r.reference_kind === 'trait_use').map(r => r.target_name),
+        referenceCount: refCount,
       });
       moduleMap.set(dir, entry);
     }
 
     return Array.from(moduleMap.entries())
-      .map(([path, { symbols, filePaths }]) => ({
-        path,
-        symbols,
-        fileCount: filePaths.size,
-      }))
+      .map(([path, { symbols, filePaths }]) => ({ path, symbols, fileCount: filePaths.size }))
       .sort((a, b) => {
         const aTotal = a.symbols.reduce((sum, s) => sum + s.referenceCount, 0);
         const bTotal = b.symbols.reduce((sum, s) => sum + s.referenceCount, 0);
@@ -274,150 +262,136 @@ export class GeneratePipeline {
       });
   }
 
-  private async queryDependencies(repoId: number): Promise<DepsData> {
-    const { rows: internalRows } = await this.pool.query(
-      `SELECT source_module, target_module, ref_count FROM (
-         SELECT
-           split_part(sf.path, '/', 1) ||
-             CASE WHEN position('/' in sf.path) > 0
-                  THEN '/' || split_part(sf.path, '/', 2)
-                  ELSE '' END AS source_module,
-           split_part(tf.path, '/', 1) ||
-             CASE WHEN position('/' in tf.path) > 0
-                  THEN '/' || split_part(tf.path, '/', 2)
-                  ELSE '' END AS target_module,
-           COUNT(*)::int AS ref_count
-         FROM symbol_references sr
-         JOIN symbols ss ON sr.source_symbol_id = ss.id
-         JOIN files sf ON ss.file_id = sf.id
-         JOIN symbols ts ON sr.target_symbol_id = ts.id
-         JOIN files tf ON ts.file_id = tf.id
-         WHERE sf.repo_id = $1 AND tf.repo_id = $1
-           AND sr.target_symbol_id IS NOT NULL
-         GROUP BY source_module, target_module
-       ) sub
-       WHERE source_module != target_module
-       ORDER BY ref_count DESC`,
-      [repoId]
-    );
+  private queryDependencies(repoId: number): DepsData {
+    const internalRows = this.db.prepare(
+      `SELECT sf.path AS source_path, tf.path AS target_path
+       FROM symbol_references sr
+       JOIN symbols ss ON sr.source_symbol_id = ss.id
+       JOIN files sf ON ss.file_id = sf.id
+       JOIN symbols ts ON sr.target_symbol_id = ts.id
+       JOIN files tf ON ts.file_id = tf.id
+       WHERE sf.repo_id = ? AND tf.repo_id = ?
+         AND sr.target_symbol_id IS NOT NULL`
+    ).all(repoId, repoId) as { source_path: string; target_path: string }[];
 
-    const { rows: externalRows } = await this.pool.query(
-      `SELECT
-         split_part(sr.target_qualified_name, E'\\\\', 1) AS namespace,
-         COUNT(*)::int AS ref_count
+    const depCounts = new Map<string, number>();
+    for (const row of internalRows) {
+      const sourceDir = extractTopDir(row.source_path);
+      const targetDir = extractTopDir(row.target_path);
+      if (sourceDir === targetDir) continue;
+      const key = `${sourceDir}\u2192${targetDir}`;
+      depCounts.set(key, (depCounts.get(key) || 0) + 1);
+    }
+
+    const internal = [...depCounts.entries()]
+      .map(([key, count]) => {
+        const [sourceModule, targetModule] = key.split('\u2192');
+        return { sourceModule, targetModule, referenceCount: count };
+      })
+      .sort((a, b) => b.referenceCount - a.referenceCount);
+
+    // External deps: unresolved refs with backslash (PHP namespaces)
+    const externalRows = this.db.prepare(
+      `SELECT sr.target_qualified_name
        FROM symbol_references sr
        JOIN symbols s ON sr.source_symbol_id = s.id
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1
+       WHERE f.repo_id = ?
          AND sr.target_symbol_id IS NULL
-         AND sr.target_qualified_name LIKE E'%\\\\\\\\%'
-       GROUP BY namespace
-       ORDER BY ref_count DESC`,
-      [repoId]
-    );
+         AND sr.target_qualified_name LIKE '%\\%'`
+    ).all(repoId) as { target_qualified_name: string }[];
 
-    return {
-      internal: internalRows.map(r => ({
-        sourceModule: r.source_module as string,
-        targetModule: r.target_module as string,
-        referenceCount: r.ref_count as number,
-      })),
-      external: externalRows.map(r => ({
-        namespace: r.namespace as string,
-        referenceCount: r.ref_count as number,
-      })),
-    };
+    const nsCounts = new Map<string, number>();
+    for (const row of externalRows) {
+      const firstBackslash = row.target_qualified_name.indexOf('\\');
+      if (firstBackslash < 0) continue;
+      const ns = row.target_qualified_name.substring(0, firstBackslash);
+      nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
+    }
+
+    const external = [...nsCounts.entries()]
+      .map(([namespace, count]) => ({ namespace, referenceCount: count }))
+      .sort((a, b) => b.referenceCount - a.referenceCount);
+
+    return { internal, external };
   }
 
-  private async queryConventions(repoId: number): Promise<ConventionsData> {
-    const { rows: kindCounts } = await this.pool.query(
-      `SELECT s.kind, COUNT(*)::int AS count
+  private queryConventions(repoId: number): ConventionsData {
+    const kindCounts = this.db.prepare(
+      `SELECT s.kind, COUNT(*) AS count
        FROM symbols s JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND s.kind IN ('class','interface','trait','enum')
+       WHERE f.repo_id = ? AND s.kind IN ('class','interface','trait','enum')
          AND s.parent_symbol_id IS NULL
-       GROUP BY s.kind`,
-      [repoId]
-    );
+       GROUP BY s.kind`
+    ).all(repoId) as { kind: string; count: number }[];
     const countMap = Object.fromEntries(kindCounts.map(r => [r.kind, r.count]));
 
-    const { rows: implCount } = await this.pool.query(
-      `SELECT COUNT(DISTINCT sr.source_symbol_id)::int AS count
+    const implCount = this.db.prepare(
+      `SELECT COUNT(DISTINCT sr.source_symbol_id) AS count
        FROM symbol_references sr
        JOIN symbols s ON sr.source_symbol_id = s.id
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND sr.reference_kind = 'implementation'`,
-      [repoId]
-    );
+       WHERE f.repo_id = ? AND sr.reference_kind = 'implementation'`
+    ).get(repoId) as { count: number };
 
-    const { rows: inheritCount } = await this.pool.query(
-      `SELECT COUNT(DISTINCT sr.source_symbol_id)::int AS count
+    const inheritCount = this.db.prepare(
+      `SELECT COUNT(DISTINCT sr.source_symbol_id) AS count
        FROM symbol_references sr
        JOIN symbols s ON sr.source_symbol_id = s.id
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND sr.reference_kind = 'inheritance'`,
-      [repoId]
-    );
+       WHERE f.repo_id = ? AND sr.reference_kind = 'inheritance'`
+    ).get(repoId) as { count: number };
 
-    const { rows: traitCount } = await this.pool.query(
-      `SELECT COUNT(DISTINCT sr.source_symbol_id)::int AS count
+    const traitCount = this.db.prepare(
+      `SELECT COUNT(DISTINCT sr.source_symbol_id) AS count
        FROM symbol_references sr
        JOIN symbols s ON sr.source_symbol_id = s.id
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND sr.reference_kind = 'trait_use'`,
-      [repoId]
-    );
+       WHERE f.repo_id = ? AND sr.reference_kind = 'trait_use'`
+    ).get(repoId) as { count: number };
 
-    const { rows: adoptionRows } = await this.pool.query(
-      `SELECT
-         split_part(f.path, '/', 1) ||
-           CASE WHEN position('/' in f.path) > 0
-                THEN '/' || split_part(f.path, '/', 2)
-                ELSE '' END AS module,
-         COUNT(DISTINCT s.id)::int AS total,
-         COUNT(DISTINCT sr.source_symbol_id)::int AS with_interface
+    const adoptionRows = this.db.prepare(
+      `SELECT s.id, f.path,
+         (SELECT COUNT(*) FROM symbol_references sr2
+          WHERE sr2.source_symbol_id = s.id AND sr2.reference_kind = 'implementation') AS has_impl
        FROM symbols s
        JOIN files f ON s.file_id = f.id
-       LEFT JOIN symbol_references sr ON sr.source_symbol_id = s.id AND sr.reference_kind = 'implementation'
-       WHERE f.repo_id = $1 AND s.kind = 'class' AND s.parent_symbol_id IS NULL
-       GROUP BY module
-       ORDER BY total DESC`,
-      [repoId]
-    );
+       WHERE f.repo_id = ? AND s.kind = 'class' AND s.parent_symbol_id IS NULL`
+    ).all(repoId) as { id: number; path: string; has_impl: number }[];
 
     const adoptionMap = new Map<string, { total: number; withInterface: number }>();
     for (const row of adoptionRows) {
-      adoptionMap.set(row.module as string, {
-        total: row.total as number,
-        withInterface: row.with_interface as number,
-      });
+      const mod = extractTopDir(row.path);
+      const entry = adoptionMap.get(mod) || { total: 0, withInterface: 0 };
+      entry.total++;
+      if (row.has_impl > 0) entry.withInterface++;
+      adoptionMap.set(mod, entry);
     }
 
-    const { rows: classNameRows } = await this.pool.query(
+    const classNameRows = this.db.prepare(
       `SELECT s.name FROM symbols s JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND s.kind = 'class' AND s.parent_symbol_id IS NULL
-       LIMIT 200`,
-      [repoId]
-    );
+       WHERE f.repo_id = ? AND s.kind = 'class' AND s.parent_symbol_id IS NULL
+       LIMIT 200`
+    ).all(repoId) as { name: string }[];
 
-    const { rows: methodNameRows } = await this.pool.query(
+    const methodNameRows = this.db.prepare(
       `SELECT s.name FROM symbols s JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND s.kind = 'method'
-         AND s.name NOT LIKE '\\_\\_%'
-       LIMIT 200`,
-      [repoId]
-    );
+       WHERE f.repo_id = ? AND s.kind = 'method'
+         AND s.name NOT LIKE '\\_\\_%' ESCAPE '\\'
+       LIMIT 200`
+    ).all(repoId) as { name: string }[];
 
     return {
-      totalClasses: (countMap.class || 0) as number,
-      totalInterfaces: (countMap.interface || 0) as number,
-      totalTraits: (countMap.trait || 0) as number,
-      totalEnums: (countMap.enum || 0) as number,
-      classesWithInterface: implCount[0].count as number,
-      classesWithInheritance: inheritCount[0].count as number,
-      classesWithTraits: traitCount[0].count as number,
+      totalClasses: (countMap.class || 0),
+      totalInterfaces: (countMap.interface || 0),
+      totalTraits: (countMap.trait || 0),
+      totalEnums: (countMap.enum || 0),
+      classesWithInterface: implCount.count,
+      classesWithInheritance: inheritCount.count,
+      classesWithTraits: traitCount.count,
       interfaceAdoptionByModule: adoptionMap,
-      classNames: classNameRows.map(r => r.name as string),
-      methodNames: methodNameRows.map(r => r.name as string),
+      classNames: classNameRows.map(r => r.name),
+      methodNames: methodNameRows.map(r => r.name),
     };
   }
 }

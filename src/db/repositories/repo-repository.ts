@@ -1,4 +1,4 @@
-import type pg from 'pg';
+import type Database from 'better-sqlite3';
 
 export interface RepoRecord {
   id: number;
@@ -9,33 +9,32 @@ export interface RepoRecord {
 }
 
 export class RepoRepository {
-  constructor(private pool: pg.Pool) {}
+  constructor(private db: Database.Database) {}
 
-  async findOrCreate(path: string, name: string): Promise<RepoRecord> {
-    const { rows } = await this.pool.query(
-      `INSERT INTO repos (path, name)
-       VALUES ($1, $2)
-       ON CONFLICT (path) DO UPDATE SET name = $2
-       RETURNING id, path, name, created_at, last_indexed_at`,
-      [path, name]
-    );
-    return this.toRecord(rows[0]);
+  findOrCreate(path: string, name: string): RepoRecord {
+    this.db.prepare(
+      `INSERT OR IGNORE INTO repos (path, name) VALUES (?, ?)`
+    ).run(path, name);
+
+    this.db.prepare(
+      `UPDATE repos SET name = ? WHERE path = ?`
+    ).run(name, path);
+
+    return this.findByPath(path)!;
   }
 
-  async findByPath(path: string): Promise<RepoRecord | null> {
-    const { rows } = await this.pool.query(
-      'SELECT id, path, name, created_at, last_indexed_at FROM repos WHERE path = $1',
-      [path]
-    );
-    if (rows.length === 0) return null;
-    return this.toRecord(rows[0]);
+  findByPath(path: string): RepoRecord | null {
+    const row = this.db.prepare(
+      'SELECT id, path, name, created_at, last_indexed_at FROM repos WHERE path = ?'
+    ).get(path) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.toRecord(row);
   }
 
-  async updateLastIndexed(id: number): Promise<void> {
-    await this.pool.query(
-      'UPDATE repos SET last_indexed_at = NOW() WHERE id = $1',
-      [id]
-    );
+  updateLastIndexed(id: number): void {
+    this.db.prepare(
+      "UPDATE repos SET last_indexed_at = datetime('now') WHERE id = ?"
+    ).run(id);
   }
 
   private toRecord(row: Record<string, unknown>): RepoRecord {
@@ -43,8 +42,8 @@ export class RepoRepository {
       id: row.id as number,
       path: row.path as string,
       name: row.name as string,
-      createdAt: row.created_at as Date,
-      lastIndexedAt: (row.last_indexed_at as Date) || null,
+      createdAt: new Date(row.created_at as string),
+      lastIndexedAt: row.last_indexed_at ? new Date(row.last_indexed_at as string) : null,
     };
   }
 }

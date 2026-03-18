@@ -1,4 +1,4 @@
-import type pg from 'pg';
+import type Database from 'better-sqlite3';
 
 export interface ReferenceRecord {
   id: number;
@@ -11,167 +11,166 @@ export interface ReferenceRecord {
 }
 
 export class ReferenceRepository {
-  constructor(private pool: pg.Pool) {}
+  constructor(private db: Database.Database) {}
 
-  async replaceFileReferences(
+  replaceFileReferences(
     fileId: number,
     symbolIdMap: Map<string, number>,
     references: { sourceQualifiedName: string; targetQualifiedName: string; kind: string; line: number }[]
-  ): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Delete existing references for symbols in this file
-      await client.query(
+  ): void {
+    const doReplace = this.db.transaction(() => {
+      this.db.prepare(
         `DELETE FROM symbol_references
          WHERE source_symbol_id IN (
-           SELECT id FROM symbols WHERE file_id = $1
-         )`,
-        [fileId]
+           SELECT id FROM symbols WHERE file_id = ?
+         )`
+      ).run(fileId);
+
+      const insertStmt = this.db.prepare(
+        `INSERT INTO symbol_references
+           (source_symbol_id, target_qualified_name, reference_kind, line_number)
+         VALUES (?, ?, ?, ?)`
       );
 
-      // Insert new references
       for (const ref of references) {
         const sourceId = symbolIdMap.get(ref.sourceQualifiedName);
         if (!sourceId) continue;
-
-        await client.query(
-          `INSERT INTO symbol_references
-             (source_symbol_id, target_qualified_name, reference_kind, line_number)
-           VALUES ($1, $2, $3, $4)`,
-          [sourceId, ref.targetQualifiedName, ref.kind, ref.line]
-        );
+        insertStmt.run(sourceId, ref.targetQualifiedName, ref.kind, ref.line);
       }
+    });
 
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    doReplace();
   }
 
-  async resolveTargets(repoId: number): Promise<{ resolved: number; unresolved: number }> {
-    // Pass 1: Exact match — target_qualified_name matches LOWER(qualified_name)
-    const { rowCount: exactResolved } = await this.pool.query(
-      `UPDATE symbol_references sr
-       SET target_symbol_id = s.id
+  resolveTargets(repoId: number): { resolved: number; unresolved: number } {
+    // Build lookup maps for fast resolution in app code.
+    // This avoids correlated subqueries that would be O(refs × symbols) in SQLite.
+    const symbols = this.db.prepare(
+      `SELECT s.id, LOWER(s.qualified_name) AS lqn, s.parent_symbol_id
        FROM symbols s
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1
-         AND sr.target_qualified_name = LOWER(s.qualified_name)
-         AND sr.target_symbol_id IS NULL
-         AND sr.source_symbol_id IN (
-           SELECT id FROM symbols WHERE file_id IN (
-             SELECT id FROM files WHERE repo_id = $1
-           )
-         )`,
-      [repoId]
-    );
+       WHERE f.repo_id = ? AND s.qualified_name IS NOT NULL`
+    ).all(repoId) as { id: number; lqn: string; parent_symbol_id: number | null }[];
 
-    // Pass 2: Class-level fallback — for Class::method patterns, resolve to the class symbol.
-    // This handles static calls, ::class constants, and method-level references
-    // where the class exists but the method-level symbol doesn't.
-    const { rowCount: classResolved } = await this.pool.query(
-      `UPDATE symbol_references sr
-       SET target_symbol_id = s.id
-       FROM symbols s
-       JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1
-         AND sr.target_qualified_name LIKE '%::%'
-         AND sr.target_symbol_id IS NULL
-         AND split_part(sr.target_qualified_name, '::', 1) = LOWER(s.qualified_name)
-         AND s.parent_symbol_id IS NULL
-         AND sr.source_symbol_id IN (
-           SELECT id FROM symbols WHERE file_id IN (
-             SELECT id FROM files WHERE repo_id = $1
-           )
-         )`,
-      [repoId]
-    );
+    const exactMap = new Map<string, number>();
+    const classMap = new Map<string, number>();
+    for (const s of symbols) {
+      exactMap.set(s.lqn, s.id);
+      if (s.parent_symbol_id === null) {
+        classMap.set(s.lqn, s.id);
+      }
+    }
 
-    const { rows } = await this.pool.query(
-      `SELECT COUNT(*)::int AS count FROM symbol_references sr
+    const unresolvedRefs = this.db.prepare(
+      `SELECT sr.id, sr.target_qualified_name
+       FROM symbol_references sr
        JOIN symbols s ON sr.source_symbol_id = s.id
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1 AND sr.target_symbol_id IS NULL`,
-      [repoId]
+       WHERE f.repo_id = ? AND sr.target_symbol_id IS NULL`
+    ).all(repoId) as { id: number; target_qualified_name: string }[];
+
+    const updateStmt = this.db.prepare(
+      'UPDATE symbol_references SET target_symbol_id = ? WHERE id = ?'
     );
 
-    return {
-      resolved: (exactResolved || 0) + (classResolved || 0),
-      unresolved: rows[0].count as number,
-    };
+    let resolved = 0;
+    const batchResolve = this.db.transaction(() => {
+      for (const ref of unresolvedRefs) {
+        const tqn = ref.target_qualified_name.toLowerCase();
+
+        // Pass 1: exact match
+        const exactId = exactMap.get(tqn);
+        if (exactId) {
+          updateStmt.run(exactId, ref.id);
+          resolved++;
+          continue;
+        }
+
+        // Pass 2: class-level fallback for Class::method patterns
+        const colonIdx = tqn.indexOf('::');
+        if (colonIdx > 0) {
+          const classQn = tqn.substring(0, colonIdx);
+          const classId = classMap.get(classQn);
+          if (classId) {
+            updateStmt.run(classId, ref.id);
+            resolved++;
+          }
+        }
+      }
+    });
+    batchResolve();
+
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM symbol_references sr
+       JOIN symbols s ON sr.source_symbol_id = s.id
+       JOIN files f ON s.file_id = f.id
+       WHERE f.repo_id = ? AND sr.target_symbol_id IS NULL`
+    ).get(repoId) as { count: number };
+
+    return { resolved, unresolved: row.count };
   }
 
-  async findDependents(
+  findDependents(
     symbolId: number,
     depth: number = 1
-  ): Promise<Record<string, unknown>[]> {
+  ): Record<string, unknown>[] {
     if (depth <= 1) {
-      const { rows } = await this.pool.query(
+      return this.db.prepare(
         `SELECT sr.*, s.qualified_name AS source_qualified_name,
                 f.path AS source_file_path
          FROM symbol_references sr
          JOIN symbols s ON sr.source_symbol_id = s.id
          JOIN files f ON s.file_id = f.id
-         WHERE sr.target_symbol_id = $1
-         ORDER BY f.path, sr.line_number`,
-        [symbolId]
-      );
-      return rows;
+         WHERE sr.target_symbol_id = ?
+         ORDER BY f.path, sr.line_number`
+      ).all(symbolId) as Record<string, unknown>[];
     }
 
-    const { rows } = await this.pool.query(
+    // DISTINCT ON replacement: filter by MIN(depth) per source_symbol_id
+    return this.db.prepare(
       `WITH RECURSIVE deps AS (
          SELECT sr.*, 1 AS depth
          FROM symbol_references sr
-         WHERE sr.target_symbol_id = $1
+         WHERE sr.target_symbol_id = ?
          UNION ALL
          SELECT sr.*, d.depth + 1
          FROM symbol_references sr
          JOIN deps d ON sr.target_symbol_id = d.source_symbol_id
-         WHERE d.depth < $2
+         WHERE d.depth < ?
        )
-       SELECT DISTINCT ON (deps.source_symbol_id) deps.*,
+       SELECT deps.*,
               s.qualified_name AS source_qualified_name,
               f.path AS source_file_path
        FROM deps
        JOIN symbols s ON deps.source_symbol_id = s.id
        JOIN files f ON s.file_id = f.id
-       ORDER BY deps.source_symbol_id, deps.depth`,
-      [symbolId, depth]
-    );
-    return rows;
+       WHERE deps.depth = (
+         SELECT MIN(d2.depth) FROM deps d2
+         WHERE d2.source_symbol_id = deps.source_symbol_id
+       )
+       ORDER BY deps.source_symbol_id, deps.depth`
+    ).all(symbolId, depth) as Record<string, unknown>[];
   }
 
-  async findDependencies(symbolId: number): Promise<ReferenceRecord[]> {
-    // Include references from the symbol itself AND its child symbols (methods).
-    // This ensures class-level queries surface ::class refs from methods like
-    // getBuilderName() { return Builder::class; }
-    // Join source symbol name so callers can show "via getBuilderName()" context.
-    const { rows } = await this.pool.query(
+  findDependencies(symbolId: number): ReferenceRecord[] {
+    const rows = this.db.prepare(
       `SELECT sr.*, s.name AS source_symbol_name FROM symbol_references sr
        JOIN symbols s ON s.id = sr.source_symbol_id
-       WHERE sr.source_symbol_id = $1
-          OR sr.source_symbol_id IN (SELECT id FROM symbols WHERE parent_symbol_id = $1)
-       ORDER BY sr.line_number`,
-      [symbolId]
-    );
-    return rows.map((r: Record<string, unknown>) => this.toRecord(r));
+       WHERE sr.source_symbol_id = ?
+          OR sr.source_symbol_id IN (SELECT id FROM symbols WHERE parent_symbol_id = ?)
+       ORDER BY sr.line_number`
+    ).all(symbolId, symbolId) as Record<string, unknown>[];
+    return rows.map(r => this.toRecord(r));
   }
 
-  async countByRepo(repoId: number): Promise<number> {
-    const { rows } = await this.pool.query(
-      `SELECT COUNT(*)::int AS count FROM symbol_references sr
+  countByRepo(repoId: number): number {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM symbol_references sr
        JOIN symbols s ON sr.source_symbol_id = s.id
        JOIN files f ON s.file_id = f.id
-       WHERE f.repo_id = $1`,
-      [repoId]
-    );
-    return rows[0].count as number;
+       WHERE f.repo_id = ?`
+    ).get(repoId) as { count: number };
+    return row.count;
   }
 
   private toRecord(row: Record<string, unknown>): ReferenceRecord {

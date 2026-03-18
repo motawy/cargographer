@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type pg from 'pg';
+import type Database from 'better-sqlite3';
 import { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
 import type { ToolDeps, RepoStats } from './types.js';
@@ -14,14 +14,14 @@ import { handleCompare } from './tools/compare.js';
 import { handleStatus } from './tools/status.js';
 
 interface ServerOptions {
-  pool: pg.Pool;
+  db: Database.Database;
   repoId: number;
   repoPath?: string;
 }
 
-export async function createServer(opts: ServerOptions): Promise<McpServer> {
-  const symbolRepo = new SymbolRepository(opts.pool);
-  const refRepo = new ReferenceRepository(opts.pool);
+export function createServer(opts: ServerOptions): McpServer {
+  const symbolRepo = new SymbolRepository(opts.db);
+  const refRepo = new ReferenceRepository(opts.db);
 
   const deps: ToolDeps = {
     repoId: opts.repoId,
@@ -30,7 +30,7 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
     refRepo,
   };
 
-  const stats = await computeRepoStats(opts.pool, opts.repoId);
+  const stats = computeRepoStats(opts.db, opts.repoId);
 
   const server = new McpServer({
     name: 'cartograph',
@@ -38,14 +38,15 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
   });
 
   // Error wrapper — catch DB errors, format as user-facing text, log to stderr.
-  function wrap(fn: () => Promise<string>): Promise<{ content: { type: 'text'; text: string }[] }> {
-    return fn()
-      .then(text => ({ content: [{ type: 'text' as const, text }] }))
-      .catch(err => {
-        console.error('Cartograph tool error:', err);
-        const message = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: 'text' as const, text: `Database error: ${message}` }] };
-      });
+  function wrap(fn: () => string): Promise<{ content: { type: 'text'; text: string }[] }> {
+    try {
+      const text = fn();
+      return Promise.resolve({ content: [{ type: 'text' as const, text }] });
+    } catch (err) {
+      console.error('Cartograph tool error:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      return Promise.resolve({ content: [{ type: 'text' as const, text: `Database error: ${message}` }] });
+    }
   }
 
   // --- cartograph_status ---
@@ -53,7 +54,7 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
     'cartograph_status',
     'Check index health: when it was last built, how many symbols/files are indexed, and whether a re-index is needed',
     {},
-    async () => wrap(() => handleStatus({ pool: opts.pool, repoId: opts.repoId }))
+    async () => wrap(() => handleStatus({ db: opts.db, repoId: opts.repoId }))
   );
 
   // --- cartograph_find ---
@@ -138,28 +139,27 @@ export async function createServer(opts: ServerOptions): Promise<McpServer> {
   return server;
 }
 
-async function computeRepoStats(pool: pg.Pool, repoId: number): Promise<RepoStats> {
-  const { rows } = await pool.query(
+function computeRepoStats(db: Database.Database, repoId: number): RepoStats {
+  const row = db.prepare(
     `SELECT
-       COUNT(*)::int AS total_classes,
-       COUNT(*) FILTER (WHERE EXISTS (
+       COUNT(*) AS total_classes,
+       SUM(CASE WHEN EXISTS (
          SELECT 1 FROM symbol_references sr WHERE sr.source_symbol_id = s.id AND sr.reference_kind = 'implementation'
-       ))::int AS with_interface,
-       COUNT(*) FILTER (WHERE EXISTS (
+       ) THEN 1 ELSE 0 END) AS with_interface,
+       SUM(CASE WHEN EXISTS (
          SELECT 1 FROM symbol_references sr WHERE sr.source_symbol_id = s.id AND sr.reference_kind = 'inheritance'
-       ))::int AS with_base_class,
-       COUNT(*) FILTER (WHERE EXISTS (
+       ) THEN 1 ELSE 0 END) AS with_base_class,
+       SUM(CASE WHEN EXISTS (
          SELECT 1 FROM symbol_references sr WHERE sr.source_symbol_id = s.id AND sr.reference_kind = 'trait_use'
-       ))::int AS with_traits
+       ) THEN 1 ELSE 0 END) AS with_traits
      FROM symbols s
      JOIN files f ON s.file_id = f.id
-     WHERE f.repo_id = $1 AND s.kind = 'class'`,
-    [repoId]
-  );
+     WHERE f.repo_id = ? AND s.kind = 'class'`
+  ).get(repoId) as Record<string, number>;
   return {
-    totalClasses: rows[0].total_classes,
-    classesWithInterface: rows[0].with_interface,
-    classesWithBaseClass: rows[0].with_base_class,
-    classesWithTraits: rows[0].with_traits,
+    totalClasses: row.total_classes ?? 0,
+    classesWithInterface: row.with_interface ?? 0,
+    classesWithBaseClass: row.with_base_class ?? 0,
+    classesWithTraits: row.with_traits ?? 0,
   };
 }

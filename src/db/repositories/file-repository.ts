@@ -1,4 +1,4 @@
-import type pg from 'pg';
+import type Database from 'better-sqlite3';
 
 export interface FileRecord {
   id: number;
@@ -11,42 +11,42 @@ export interface FileRecord {
 }
 
 export class FileRepository {
-  constructor(private pool: pg.Pool) {}
+  constructor(private db: Database.Database) {}
 
-  async upsert(
+  upsert(
     repoId: number,
     path: string,
     language: string,
     hash: string,
     linesOfCode: number
-  ): Promise<FileRecord> {
-    const { rows } = await this.pool.query(
+  ): FileRecord {
+    this.db.prepare(
       `INSERT INTO files (repo_id, path, language, hash, last_indexed_at, lines_of_code)
-       VALUES ($1, $2, $3, $4, NOW(), $5)
+       VALUES (?, ?, ?, ?, datetime('now'), ?)
        ON CONFLICT (repo_id, path)
-       DO UPDATE SET hash = $4, last_indexed_at = NOW(), lines_of_code = $5
-       RETURNING *`,
-      [repoId, path, language, hash, linesOfCode]
-    );
-    return this.toRecord(rows[0]);
+       DO UPDATE SET hash = excluded.hash, last_indexed_at = datetime('now'), lines_of_code = excluded.lines_of_code`
+    ).run(repoId, path, language, hash, linesOfCode);
+
+    const row = this.db.prepare(
+      'SELECT * FROM files WHERE repo_id = ? AND path = ?'
+    ).get(repoId, path) as Record<string, unknown>;
+
+    return this.toRecord(row);
   }
 
-  async getFileHashes(repoId: number): Promise<Map<string, string>> {
-    const { rows } = await this.pool.query(
-      'SELECT path, hash FROM files WHERE repo_id = $1',
-      [repoId]
-    );
-    return new Map(
-      rows.map((r: { path: string; hash: string }) => [r.path, r.hash])
-    );
+  getFileHashes(repoId: number): Map<string, string> {
+    const rows = this.db.prepare(
+      'SELECT path, hash FROM files WHERE repo_id = ?'
+    ).all(repoId) as { path: string; hash: string }[];
+    return new Map(rows.map(r => [r.path, r.hash]));
   }
 
-  async deleteByPaths(repoId: number, paths: string[]): Promise<void> {
+  deleteByPaths(repoId: number, paths: string[]): void {
     if (paths.length === 0) return;
-    await this.pool.query(
-      'DELETE FROM files WHERE repo_id = $1 AND path = ANY($2)',
-      [repoId, paths]
-    );
+    const placeholders = paths.map(() => '?').join(', ');
+    this.db.prepare(
+      `DELETE FROM files WHERE repo_id = ? AND path IN (${placeholders})`
+    ).run(repoId, ...paths);
   }
 
   private toRecord(row: Record<string, unknown>): FileRecord {
@@ -56,7 +56,7 @@ export class FileRepository {
       path: row.path as string,
       language: row.language as string,
       hash: row.hash as string,
-      lastIndexedAt: row.last_indexed_at as Date,
+      lastIndexedAt: new Date(row.last_indexed_at as string),
       linesOfCode: (row.lines_of_code as number) || null,
     };
   }
