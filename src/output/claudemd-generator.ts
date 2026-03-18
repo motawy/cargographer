@@ -28,7 +28,7 @@ export function generateClaudeMdSection(stats: RepoStats, conventions: Conventio
   lines.push('|------|-------------|-------------|');
   lines.push('| `cartograph_status` | Check index health and freshness | — |');
   lines.push('| `cartograph_find` | Search symbols by name (fuzzy, matches anywhere in qualified name). Path filter supports partial/substring matching. Suggests corrections on 0 results. | `kind`: class/method/interface/etc. `path`: substring match on file path (e.g. `"Route/Root/Companies"`) |');
-  lines.push('| `cartograph_symbol` | Look up a class and its relationships. With `deep: true`, shows full vertical stack: inheritance, wiring (which method → which class), concrete implementations, and depth-2 wiring detail. | `name`: fully or partially qualified. `deep`: true for full stack view |');
+  lines.push('| `cartograph_symbol` | Look up a class and its relationships. With `deep: true`, shows full vertical stack: inheritance, wiring (which method → which class), concrete implementations, depth-2 wiring detail, and **context requirements** (which `$this->args`/`$this->params` keys the class consumes — answers \"can I reuse this in a different route?\"). | `name`: fully or partially qualified. `deep`: true for full stack view |');
   lines.push('| `cartograph_deps` | Forward dependency graph. Shows which method creates each edge (e.g. "via getControllerName(), line 13"). Follows `::class` references through method bodies. | `depth`: 1-10 (default 3) |');
   lines.push('| `cartograph_dependents` | Reverse dependency lookup — what depends on this symbol? | `depth`: 1-5 (default 1) |');
   lines.push('| `cartograph_blast_radius` | What breaks if this file changes? | `depth`: 1-5 (default 2) |');

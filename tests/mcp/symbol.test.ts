@@ -166,4 +166,55 @@ describe('cartograph_symbol', () => {
     expect(result).toContain('getControllerName');
     expect(result).toContain('MyController');
   });
+
+  it('deep mode shows context requirements from method metadata', async () => {
+    const repoRepo = new RepoRepository(pool);
+    const fileRepo = new FileRepository(pool);
+    const symbolRepo = new SymbolRepository(pool);
+    const refRepo = new ReferenceRepository(pool);
+
+    const repo = await repoRepo.findOrCreate('/test/ctx-req', 'test-ctx-req');
+    const f1 = await fileRepo.upsert(repo.id, 'builder.php', 'php', 'ctx1', 40);
+
+    const builderSymbol: ParsedSymbol = {
+      name: 'JobNotesBuilder', qualifiedName: 'App\\Builders\\JobNotesBuilder',
+      kind: 'class', visibility: null, lineStart: 1, lineEnd: 40,
+      signature: null, returnType: null, docblock: null, metadata: {},
+      children: [
+        {
+          name: 'getReferenceID', qualifiedName: 'App\\Builders\\JobNotesBuilder::getReferenceID',
+          kind: 'method', visibility: 'protected', lineStart: 5, lineEnd: 8,
+          signature: null, returnType: null, docblock: null, children: [],
+          metadata: { contextArgs: ['jobID'] },
+        },
+        {
+          name: 'getFilters', qualifiedName: 'App\\Builders\\JobNotesBuilder::getFilters',
+          kind: 'method', visibility: 'protected', lineStart: 10, lineEnd: 15,
+          signature: null, returnType: null, docblock: null, children: [],
+          metadata: { contextArgs: ['sectionID'], contextParams: ['page', 'limit'] },
+        },
+        {
+          name: 'getName', qualifiedName: 'App\\Builders\\JobNotesBuilder::getName',
+          kind: 'method', visibility: 'public', lineStart: 17, lineEnd: 20,
+          signature: null, returnType: null, docblock: null, children: [],
+          metadata: {},
+        },
+      ],
+    };
+
+    await symbolRepo.replaceFileSymbols(f1.id, [builderSymbol]);
+
+    const ctxDeps: ToolDeps = { repoId: repo.id, symbolRepo, refRepo };
+    const ctxStats: RepoStats = { totalClasses: 1, classesWithInterface: 0, classesWithBaseClass: 0, classesWithTraits: 0 };
+
+    const result = await handleSymbol(ctxDeps, ctxStats, { name: 'App\\Builders\\JobNotesBuilder', deep: true });
+
+    expect(result).toContain('Context requirements');
+    expect(result).toContain('Route args consumed:');
+    expect(result).toContain('jobID (via getReferenceID())');
+    expect(result).toContain('sectionID (via getFilters())');
+    expect(result).toContain('Request params consumed:');
+    expect(result).toContain('page (via getFilters())');
+    expect(result).toContain('limit (via getFilters())');
+  });
 });

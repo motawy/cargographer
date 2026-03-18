@@ -265,6 +265,15 @@ function extractMethod(
     metadata.magic = true;
   }
 
+  // Extract runtime context dependencies: $this->args['key'], $this->params['key']
+  const contextArgs = extractContextAccess(node);
+  if (contextArgs.args.length > 0) {
+    metadata.contextArgs = contextArgs.args;
+  }
+  if (contextArgs.params.length > 0) {
+    metadata.contextParams = contextArgs.params;
+  }
+
   return {
     name,
     qualifiedName: `${parentQualifiedName}::${name}`,
@@ -278,6 +287,34 @@ function extractMethod(
     children: [],
     metadata,
   };
+}
+
+/**
+ * Scan a method body for $this->args['key'] and $this->params['key'] access patterns.
+ * These represent implicit coupling to route/request context.
+ */
+function extractContextAccess(methodNode: SyntaxNode): { args: string[]; params: string[] } {
+  const bodyNode = findChild(methodNode, 'compound_statement');
+  if (!bodyNode) return { args: [], params: [] };
+
+  const bodyText = bodyNode.text;
+  const args = new Set<string>();
+  const params = new Set<string>();
+
+  // Match $this->args['key'] and $this->args["key"]
+  const argsPattern = /\$this->args\[['"]([^'"]+)['"]\]/g;
+  let match;
+  while ((match = argsPattern.exec(bodyText)) !== null) {
+    args.add(match[1]);
+  }
+
+  // Match $this->params['key'] and $this->params["key"]
+  const paramsPattern = /\$this->params\[['"]([^'"]+)['"]\]/g;
+  while ((match = paramsPattern.exec(bodyText)) !== null) {
+    params.add(match[1]);
+  }
+
+  return { args: [...args], params: [...params] };
 }
 
 // --- Function extraction ---

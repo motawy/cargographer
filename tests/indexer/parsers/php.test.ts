@@ -308,6 +308,135 @@ class UserTest {}
     });
   });
 
+  describe('context access extraction ($this->args / $this->params)', () => {
+    it('extracts $this->args keys from method body', () => {
+      const source = `<?php
+namespace App\\Builders;
+
+class JobNotesBuilder {
+    protected function getReferenceID()
+    {
+        return (int) $this->args['jobID'];
+    }
+
+    protected function getSecondaryID()
+    {
+        $primary = $this->args['jobID'];
+        $secondary = $this->args['sectionID'];
+        return [$primary, $secondary];
+    }
+}
+`;
+      const result = parsePHP(parser.parse(source));
+      const cls = result.symbols[0];
+      const getRef = cls.children.find(c => c.name === 'getReferenceID');
+      const getSec = cls.children.find(c => c.name === 'getSecondaryID');
+
+      expect(getRef?.metadata.contextArgs).toEqual(['jobID']);
+      expect(getSec?.metadata.contextArgs).toEqual(expect.arrayContaining(['jobID', 'sectionID']));
+      expect(getSec?.metadata.contextArgs).toHaveLength(2);
+    });
+
+    it('extracts $this->params keys from method body', () => {
+      const source = `<?php
+namespace App\\Builders;
+
+class SearchBuilder {
+    protected function getFilters()
+    {
+        $page = $this->params['page'];
+        $limit = $this->params['limit'];
+        return [$page, $limit];
+    }
+}
+`;
+      const result = parsePHP(parser.parse(source));
+      const cls = result.symbols[0];
+      const getFilters = cls.children.find(c => c.name === 'getFilters');
+
+      expect(getFilters?.metadata.contextParams).toEqual(expect.arrayContaining(['page', 'limit']));
+      expect(getFilters?.metadata.contextParams).toHaveLength(2);
+    });
+
+    it('extracts both args and params from same method', () => {
+      const source = `<?php
+namespace App\\Builders;
+
+class MixedBuilder {
+    protected function getData()
+    {
+        $id = $this->args['jobID'];
+        $filter = $this->params['status'];
+        return [$id, $filter];
+    }
+}
+`;
+      const result = parsePHP(parser.parse(source));
+      const cls = result.symbols[0];
+      const getData = cls.children.find(c => c.name === 'getData');
+
+      expect(getData?.metadata.contextArgs).toEqual(['jobID']);
+      expect(getData?.metadata.contextParams).toEqual(['status']);
+    });
+
+    it('does not set metadata when no context access exists', () => {
+      const source = `<?php
+namespace App\\Builders;
+
+class SimpleBuilder {
+    protected function getName(): string
+    {
+        return 'simple';
+    }
+}
+`;
+      const result = parsePHP(parser.parse(source));
+      const cls = result.symbols[0];
+      const getName = cls.children.find(c => c.name === 'getName');
+
+      expect(getName?.metadata.contextArgs).toBeUndefined();
+      expect(getName?.metadata.contextParams).toBeUndefined();
+    });
+
+    it('deduplicates repeated access to same key', () => {
+      const source = `<?php
+namespace App\\Builders;
+
+class RepeatBuilder {
+    protected function process()
+    {
+        $a = $this->args['jobID'];
+        $b = $this->args['jobID'];
+        return $a + $b;
+    }
+}
+`;
+      const result = parsePHP(parser.parse(source));
+      const cls = result.symbols[0];
+      const process = cls.children.find(c => c.name === 'process');
+
+      expect(process?.metadata.contextArgs).toEqual(['jobID']);
+    });
+
+    it('handles double-quoted string keys', () => {
+      const source = `<?php
+namespace App\\Builders;
+
+class DoubleQuoteBuilder {
+    protected function getID()
+    {
+        return $this->args["recurringJobID"];
+    }
+}
+`;
+      const result = parsePHP(parser.parse(source));
+      const cls = result.symbols[0];
+      const getID = cls.children.find(c => c.name === 'getID');
+
+      expect(getID?.metadata.contextArgs).toEqual(['recurringJobID']);
+    });
+  });
+
   describe('standalone functions', () => {
     it('extracts top-level function definitions', () => {
       const source = `<?php

@@ -164,6 +164,44 @@ async function appendDeepView(
       }
     }
   }
+
+  // 5. Context requirements: what route args/params does this class consume?
+  const children = await symbolRepo.findChildren(symbolId);
+  const argEntries: { key: string; method: string; }[] = [];
+  const paramEntries: { key: string; method: string; }[] = [];
+
+  for (const child of children) {
+    const meta = child.metadata || {};
+    const contextArgs = meta.contextArgs as string[] | undefined;
+    const contextParams = meta.contextParams as string[] | undefined;
+    if (contextArgs) {
+      for (const key of contextArgs) {
+        argEntries.push({ key, method: child.name });
+      }
+    }
+    if (contextParams) {
+      for (const key of contextParams) {
+        paramEntries.push({ key, method: child.name });
+      }
+    }
+  }
+
+  if (argEntries.length > 0 || paramEntries.length > 0) {
+    lines.push('');
+    lines.push('### Context requirements');
+    if (argEntries.length > 0) {
+      lines.push('Route args consumed:');
+      for (const entry of argEntries) {
+        lines.push(`  - ${entry.key} (via ${entry.method}())`);
+      }
+    }
+    if (paramEntries.length > 0) {
+      lines.push('Request params consumed:');
+      for (const entry of paramEntries) {
+        lines.push(`  - ${entry.key} (via ${entry.method}())`);
+      }
+    }
+  }
 }
 
 function buildConventionsContext(
