@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
 import type { CartographConfig } from './types.js';
 
@@ -12,11 +13,8 @@ export function loadConfig(repoPath: string): CartographConfig {
     languages: ['php'],
     exclude: DEFAULT_EXCLUDES,
     database: {
-      host: process.env.CARTOGRAPH_DB_HOST || 'localhost',
-      port: parseInt(process.env.CARTOGRAPH_DB_PORT || '5435'),
-      name: process.env.CARTOGRAPH_DB_NAME || 'cartograph',
-      user: process.env.CARTOGRAPH_DB_USER || 'cartograph',
-      password: process.env.CARTOGRAPH_DB_PASSWORD || 'localdev',
+      path: process.env.CARTOGRAPH_DB_PATH
+        || join(homedir(), '.cartograph', 'cartograph.db'),
     },
   };
 

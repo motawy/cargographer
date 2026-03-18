@@ -1,3 +1,5 @@
+# PostgreSQL kept for optional future use (embeddings/pgvector).
+# Cartograph uses SQLite by default — this is NOT required.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -14,11 +16,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6381:6379"
 
 volumes:
   pgdata:
