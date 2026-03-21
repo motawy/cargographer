@@ -2,6 +2,7 @@ import type { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import type { ReferenceRepository } from '../db/repositories/reference-repository.js';
 import type { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
 import type { FileRepository } from '../db/repositories/file-repository.js';
+import type { SymbolSchemaRepository } from '../db/repositories/symbol-schema-repository.js';
 
 export type ToolDeps = {
   repoId: number;
@@ -10,6 +11,7 @@ export type ToolDeps = {
   symbolRepo: SymbolRepository;
   refRepo: ReferenceRepository;
   schemaRepo?: DbSchemaRepository;
+  symbolSchemaRepo?: SymbolSchemaRepository;
 };
 
 /** Repo-wide stats cached once at server startup for conventions context. */

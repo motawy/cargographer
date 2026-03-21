@@ -24,6 +24,7 @@ Cartograph is a TypeScript CLI and MCP server that indexes a PHP codebase into a
 - Can index explicit additional source roots outside the repo via `.cartograph.yml` `additional_sources`
 - Parses PHP with Tree-sitter and indexes classes, interfaces, traits, enums, functions, methods, properties, and constants
 - Parses SQL DDL and indexes tables, columns, and foreign keys
+- Extracts Doctrine-style entity→table and property→column mappings from PHP attributes/docblocks when present
 - Extracts references such as inheritance, implementations, trait use, instantiation, static calls, self calls, type hints, and class references
 - Stores the index locally so CLI commands and MCP tools can answer structural questions without rescanning the repo
 
@@ -129,6 +130,15 @@ Useful options:
 
 Import current schema directly from PostgreSQL into Cartograph's canonical schema layer.
 
+### `cartograph table-usage <table> --repo-path <path>`
+
+Bridge schema to code by showing mapped entities, mapped columns, and code references for a table.
+
+Useful options:
+
+- `--depth <n>` for transitive code-reference depth
+- `--limit <n>` to control how many code touchpoints are shown
+
 ### `cartograph search-content <query> --repo-path <path>`
 
 Search indexed source content by literal substring and map matches back to enclosing symbols.
@@ -182,6 +192,7 @@ The MCP server currently exposes these tools:
 - `cartograph_schema` - list or search current database tables
 - `cartograph_table` - inspect current SQL table state, its columns, and foreign key relationships
 - `cartograph_table_graph` - traverse the foreign-key neighborhood around a table
+- `cartograph_table_usage` - bridge a table to mapped entities and code references
 - `cartograph_find` - search symbols by name, kind, and optional path filter
 - `cartograph_search_content` - search method bodies and other indexed source text by literal substring
 - `cartograph_symbol` - inspect a symbol and its relationships
@@ -253,9 +264,10 @@ Notes:
 2. Content hashing detects added, changed, and deleted files.
 3. PHP parsing extracts symbols into the SQLite index.
 4. Reference extraction records symbol relationships.
-5. Cross-file resolution links references to concrete indexed symbols.
-6. Current schema is materialized either from SQL migrations or a live PostgreSQL import.
-7. Output generators and MCP tools read from the prebuilt index and canonical schema layer.
+5. Doctrine-style entity/table mappings are extracted from PHP attributes and docblocks when present.
+6. Cross-file resolution links references to concrete indexed symbols.
+7. Current schema is materialized either from SQL migrations or a live PostgreSQL import.
+8. Output generators and MCP tools read from the prebuilt index and canonical schema layer.
 
 ## Project Structure
 

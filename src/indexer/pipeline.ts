@@ -7,12 +7,14 @@ import { FileRepository } from '../db/repositories/file-repository.js';
 import { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
 import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
+import { SymbolSchemaRepository } from '../db/repositories/symbol-schema-repository.js';
 import { extractReferences } from './reference-extractor.js';
 import { IndexError } from '../errors.js';
 import { basename, resolve } from 'path';
 import { appendFileSync, readFileSync, writeFileSync } from 'fs';
 import { extractSqlSchema } from './sql-schema-extractor.js';
 import { buildCurrentSqlSchema } from './sql-schema-state.js';
+import { extractDoctrineMappings } from './doctrine-mapping-extractor.js';
 
 export interface PipelineOptions {
   verbose?: boolean;
@@ -25,6 +27,7 @@ export class IndexPipeline {
   private symbolRepo: SymbolRepository;
   private referenceRepo: ReferenceRepository;
   private dbSchemaRepo: DbSchemaRepository;
+  private symbolSchemaRepo: SymbolSchemaRepository;
 
   constructor(db: Database.Database) {
     this.repoRepo = new RepoRepository(db);
@@ -32,6 +35,7 @@ export class IndexPipeline {
     this.symbolRepo = new SymbolRepository(db);
     this.referenceRepo = new ReferenceRepository(db);
     this.dbSchemaRepo = new DbSchemaRepository(db);
+    this.symbolSchemaRepo = new SymbolSchemaRepository(db);
   }
 
   run(
@@ -118,6 +122,13 @@ export class IndexPipeline {
         );
         this.dbSchemaRepo.replaceFileSchema(fileRecord.id, []);
         const symbolIdMap = this.symbolRepo.replaceFileSymbols(fileRecord.id, symbols);
+        const doctrineMappings = extractDoctrineMappings(tree, context, symbols);
+        this.symbolSchemaRepo.replaceFileLinks(
+          fileRecord.id,
+          symbolIdMap,
+          doctrineMappings.tableLinks,
+          doctrineMappings.columnLinks
+        );
 
         // Extract and store references (best-effort)
         try {

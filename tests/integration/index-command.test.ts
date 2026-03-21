@@ -238,6 +238,64 @@ class BaseThing
     }
   });
 
+  it('extracts doctrine-style entity mappings into schema link tables', () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'cartograph-doctrine-root-'));
+
+    try {
+      mkdirSync(join(repoDir, 'src', 'Entity'), { recursive: true });
+      writeFileSync(
+        join(repoDir, 'src', 'Entity', 'RecurringQuote.php'),
+        `<?php
+namespace App\\Entity;
+
+use Doctrine\\ORM\\Mapping as ORM;
+
+#[ORM\\Entity]
+#[ORM\\Table(name: 'recurring_quotes')]
+class RecurringQuote
+{
+    #[ORM\\Column(name: 'quote_id')]
+    private int $id;
+
+    #[ORM\\JoinColumn(name: 'customer_id', referencedColumnName: 'id')]
+    private Customer $customer;
+}
+`
+      );
+
+      const pipeline = new IndexPipeline(db);
+      pipeline.run(repoDir, {
+        languages: ['php'],
+        exclude: ['vendor/'],
+        additionalSources: [],
+        database: { path: ':memory:' },
+      });
+
+      const tableLinks = db.prepare(
+        `SELECT stl.table_name, s.qualified_name
+         FROM symbol_table_links stl
+         JOIN symbols s ON s.id = stl.source_symbol_id
+         ORDER BY s.qualified_name`
+      ).all() as { table_name: string; qualified_name: string }[];
+      expect(tableLinks).toEqual([
+        { table_name: 'recurring_quotes', qualified_name: 'App\\Entity\\RecurringQuote' },
+      ]);
+
+      const columnLinks = db.prepare(
+        `SELECT scl.column_name, scl.link_kind, s.qualified_name
+         FROM symbol_column_links scl
+         JOIN symbols s ON s.id = scl.source_symbol_id
+         ORDER BY s.qualified_name`
+      ).all() as { column_name: string; link_kind: string; qualified_name: string }[];
+      expect(columnLinks).toEqual([
+        { column_name: 'customer_id', link_kind: 'entity_join_column', qualified_name: 'App\\Entity\\RecurringQuote::$customer' },
+        { column_name: 'quote_id', link_kind: 'entity_column', qualified_name: 'App\\Entity\\RecurringQuote::$id' },
+      ]);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
   it('indexes sql schema files into table, column, and foreign key rows', () => {
     const repoDir = mkdtempSync(join(tmpdir(), 'cartograph-sql-root-'));
 

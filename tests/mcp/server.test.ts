@@ -8,6 +8,7 @@ import { RepoRepository } from '../../src/db/repositories/repo-repository.js';
 import { FileRepository } from '../../src/db/repositories/file-repository.js';
 import { SymbolRepository } from '../../src/db/repositories/symbol-repository.js';
 import { DbSchemaRepository } from '../../src/db/repositories/db-schema-repository.js';
+import { SymbolSchemaRepository } from '../../src/db/repositories/symbol-schema-repository.js';
 import { createServer } from '../../src/mcp/server.js';
 import type { ParsedSymbol } from '../../src/types.js';
 
@@ -24,6 +25,7 @@ describe('MCP Server Integration', () => {
     const fileRepo = new FileRepository(db);
     const symbolRepo = new SymbolRepository(db);
     const schemaRepo = new DbSchemaRepository(db);
+    const symbolSchemaRepo = new SymbolSchemaRepository(db);
 
     const repo = repoRepo.findOrCreate('/test/repo', 'test');
     repoId = repo.id;
@@ -34,7 +36,15 @@ describe('MCP Server Integration', () => {
       kind: 'class', visibility: null, lineStart: 1, lineEnd: 10,
       signature: null, returnType: null, docblock: null, children: [], metadata: {},
     };
-    symbolRepo.replaceFileSymbols(f1.id, [sym]);
+    const symbolMap = symbolRepo.replaceFileSymbols(f1.id, [sym]);
+    symbolSchemaRepo.replaceFileLinks(f1.id, symbolMap, [
+      {
+        sourceQualifiedName: 'App\\Foo',
+        tableName: 'quotes',
+        normalizedTableName: 'quotes',
+        linkKind: 'entity_table',
+      },
+    ], []);
     schemaRepo.replaceCurrentSchemaFromImport(repo.id, [
       {
         name: 'quotes',
@@ -72,7 +82,7 @@ describe('MCP Server Integration', () => {
     db.close();
   });
 
-  it('lists all 13 tools', async () => {
+  it('lists all 14 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map(t => t.name).sort();
     expect(names).toEqual([
@@ -89,6 +99,7 @@ describe('MCP Server Integration', () => {
       'cartograph_symbol',
       'cartograph_table',
       'cartograph_table_graph',
+      'cartograph_table_usage',
     ]);
   });
 
@@ -110,5 +121,12 @@ describe('MCP Server Integration', () => {
     const text = (result.content as { type: string; text: string }[])[0].text;
     expect(text).toContain('## Schema');
     expect(text).toContain('quotes');
+  });
+
+  it('handles cartograph_table_usage tool call', async () => {
+    const result = await client.callTool({ name: 'cartograph_table_usage', arguments: { name: 'quotes' } });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('## Table Usage: quotes');
+    expect(text).toContain('App\\Foo');
   });
 });

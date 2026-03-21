@@ -6,6 +6,7 @@ import { RepoRepository } from '../../src/db/repositories/repo-repository.js';
 import { FileRepository } from '../../src/db/repositories/file-repository.js';
 import { SymbolRepository } from '../../src/db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../../src/db/repositories/reference-repository.js';
+import { SymbolSchemaRepository } from '../../src/db/repositories/symbol-schema-repository.js';
 import { handleSymbol } from '../../src/mcp/tools/symbol.js';
 import type { ToolDeps, RepoStats } from '../../src/mcp/types.js';
 import type { ParsedSymbol } from '../../src/types.js';
@@ -215,5 +216,46 @@ describe('cartograph_symbol', () => {
     expect(result).toContain('Request params consumed:');
     expect(result).toContain('page (via getFilters())');
     expect(result).toContain('limit (via getFilters())');
+  });
+
+  it('shows mapped tables when schema links exist for the symbol', () => {
+    const repoRepo = new RepoRepository(db);
+    const fileRepo = new FileRepository(db);
+    const symbolRepo = new SymbolRepository(db);
+    const refRepo = new ReferenceRepository(db);
+    const symbolSchemaRepo = new SymbolSchemaRepository(db);
+
+    const repo = repoRepo.findOrCreate('/test/entity-map', 'test-entity-map');
+    const file = fileRepo.upsert(repo.id, 'src/Entity/Quote.php', 'php', 'em1', 10);
+    const entity: ParsedSymbol = {
+      name: 'Quote',
+      qualifiedName: 'App\\Entity\\Quote',
+      kind: 'class',
+      visibility: null,
+      lineStart: 1,
+      lineEnd: 10,
+      signature: null,
+      returnType: null,
+      docblock: null,
+      metadata: {},
+      children: [],
+    };
+    const symbolMap = symbolRepo.replaceFileSymbols(file.id, [entity]);
+    symbolSchemaRepo.replaceFileLinks(file.id, symbolMap, [
+      {
+        sourceQualifiedName: 'App\\Entity\\Quote',
+        tableName: 'quotes',
+        normalizedTableName: 'quotes',
+        linkKind: 'entity_table',
+      },
+    ], []);
+
+    const result = handleSymbol(
+      { repoId: repo.id, symbolRepo, refRepo, symbolSchemaRepo },
+      { totalClasses: 1, classesWithInterface: 0, classesWithBaseClass: 0, classesWithTraits: 0 },
+      { name: 'App\\Entity\\Quote' }
+    );
+
+    expect(result).toContain('Mapped tables: quotes');
   });
 });

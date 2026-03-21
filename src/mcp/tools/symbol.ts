@@ -41,6 +41,12 @@ export function handleSymbol(deps: ToolDeps, stats: RepoStats, params: SymbolPar
     lines.push(`## ${sym.qualifiedName ?? sym.name} (${sym.kind})`);
     lines.push(`File: ${match.filePath}:${sym.lineStart}-${sym.lineEnd}`);
     if (sym.visibility) lines.push(`Visibility: ${sym.visibility}`);
+    if (deps.symbolSchemaRepo) {
+      const mappedTables = deps.symbolSchemaRepo.findTablesBySymbol(repoId, sym.id);
+      if (mappedTables.length > 0) {
+        lines.push(`Mapped tables: ${mappedTables.map((link) => link.tableName).join(', ')}`);
+      }
+    }
 
     // Forward deps (fetched early so conventions context can reuse them)
     const forwardDeps = refRepo.findDependencies(sym.id);

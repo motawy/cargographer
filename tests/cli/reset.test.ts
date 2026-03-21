@@ -29,7 +29,9 @@ describe('resetDatabase', () => {
         'db_tables',
         'files',
         'repos',
+        'symbol_column_links',
         'symbol_references',
+        'symbol_table_links',
         'symbols',
       ]);
     } finally {
@@ -54,14 +56,16 @@ describe('resetDatabase', () => {
         'db_tables',
         'files',
         'repos',
+        'symbol_column_links',
         'symbol_references',
+        'symbol_table_links',
         'symbols',
       ]);
 
       const appliedCount = db.prepare(
         'SELECT COUNT(*) AS count FROM _migrations'
       ).get() as { count: number };
-      expect(appliedCount.count).toBe(6);
+      expect(appliedCount.count).toBe(7);
     } finally {
       db.close();
     }

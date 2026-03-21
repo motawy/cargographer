@@ -5,6 +5,7 @@ import { FileRepository } from '../db/repositories/file-repository.js';
 import { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
 import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
+import { SymbolSchemaRepository } from '../db/repositories/symbol-schema-repository.js';
 import type { ToolDeps, RepoStats } from './types.js';
 import { handleFind } from './tools/find.js';
 import { handleSymbol } from './tools/symbol.js';
@@ -19,6 +20,7 @@ import { handleSchema } from './tools/schema.js';
 import { handleTable } from './tools/table.js';
 import { handleTableGraph } from './tools/table-graph.js';
 import { handleSearchContent } from './tools/search-content.js';
+import { handleTableUsage } from './tools/table-usage.js';
 
 interface ServerOptions {
   db: Database.Database;
@@ -31,6 +33,7 @@ export function createServer(opts: ServerOptions): McpServer {
   const refRepo = new ReferenceRepository(opts.db);
   const schemaRepo = new DbSchemaRepository(opts.db);
   const fileRepo = new FileRepository(opts.db);
+  const symbolSchemaRepo = new SymbolSchemaRepository(opts.db);
 
   const deps: ToolDeps = {
     repoId: opts.repoId,
@@ -39,6 +42,7 @@ export function createServer(opts: ServerOptions): McpServer {
     symbolRepo,
     refRepo,
     schemaRepo,
+    symbolSchemaRepo,
   };
 
   const stats = computeRepoStats(opts.db, opts.repoId);
@@ -98,6 +102,18 @@ export function createServer(opts: ServerOptions): McpServer {
       depth: z.number().min(1).max(5).optional().describe('Traversal depth (default 1)'),
     },
     async ({ name, depth }) => wrap(() => handleTableGraph(deps, { name, depth }))
+  );
+
+  // --- cartograph_table_usage ---
+  server.tool(
+    'cartograph_table_usage',
+    'Bridge schema to code: show mapped entities and code references for a table.',
+    {
+      name: z.string().describe('Table name, optionally schema-qualified'),
+      depth: z.number().min(1).max(5).optional().describe('Transitive code-reference depth (default 3)'),
+      limit: z.number().min(1).max(100).optional().describe('Max code touchpoints to show (default 25)'),
+    },
+    async ({ name, depth, limit }) => wrap(() => handleTableUsage(deps, { name, depth, limit }))
   );
 
   // --- cartograph_find ---
