@@ -1,95 +1,105 @@
-# CLAUDE.md — Cartograph
+# CLAUDE.md - Cartograph
 
-## What is this?
-CLI tool that compiles codebase intelligence into AI-consumable context. Indexes a codebase (AST, dependency graph, patterns) and outputs structured documentation + an MCP server that AI coding tools can query. The AI starts every session already knowing your architecture.
+## What This Repo Is
 
-## Tech stack
-- TypeScript, Node.js
-- Tree-sitter for AST parsing (PHP first, then TS/Python/Go)
-- SQLite via better-sqlite3 (zero-config, single file at `~/.cartograph/cartograph.db`)
-- No external services required — no Docker, no Redis, no Postgres
+Cartograph is a TypeScript CLI and MCP server that indexes PHP codebases into a local SQLite database and generates AI-readable context files. The current implementation is PHP-only, SQLite-only, and uses stdio for MCP.
 
-## Project structure
+## Current Product Scope
+
+- Supported language: PHP
+- Database: `better-sqlite3`, default path `~/.cartograph/cartograph.db`
+- No Redis, Postgres, pgvector, embeddings, LLM pipeline, or watch mode in the current code
+- `generate` writes:
+  - `.cartograph/CLAUDE.md`
+  - `.cartograph/modules.md`
+  - `.cartograph/dependencies.md`
+  - `.cartograph/conventions.md`
+- `generate` also injects or updates a Cartograph block in repo `CLAUDE.md` or `.claude/CLAUDE.md`
+
+## Repo Structure
+
+```text
+src/cli/              CLI commands
+src/indexer/          File discovery, AST parsing, reference extraction, indexing pipeline
+src/indexer/parsers/  PHP Tree-sitter parser
+src/output/           Markdown generators and CLAUDE.md injection helpers
+src/mcp/              MCP server and tool handlers
+src/db/               SQLite connection, migrations, repositories
+tests/fixtures/       Sample Laravel project used by tests
+tests/                Unit and integration tests
 ```
-src/cli/              — CLI commands (Commander.js)
-src/indexer/          — Core: AST parser, dep graph, embedder, profiler
-src/indexer/parsers/  — Language-specific Tree-sitter parsers
-src/output/           — Output generators (markdown, CLAUDE.md, MCP)
-src/mcp/              — MCP server implementation
-src/db/               — Migrations, connection, repositories
-src/utils/            — Git helpers, LLM client
-tests/fixtures/       — Sample projects for testing
-tests/                — Unit + integration tests
-```
 
-## Commands
+## CLI Commands
+
 ```bash
-cartograph index <repo-path>                  # Build/update the codebase index
-cartograph generate <repo-path>               # Generate AI context files (CLAUDE.md tree)
-cartograph serve                              # Start local MCP server
-cartograph query deps <symbol> --depth N      # Query dependency graph
-cartograph query blast-radius <file>          # What breaks if this changes
-cartograph query similar <symbol>             # Find similar code
-cartograph query flow <entrypoint>            # Trace an execution flow end-to-end
+cartograph index <repo-path> [--run-migrations] [--verbose] [--log <path>]
+cartograph generate <repo-path> [--claude-md <path>]
+cartograph serve [--repo-path <path>]
+cartograph uses <symbol> [--repo-path <path>] [--depth N]
+cartograph impact <file> [--repo-path <path>] [--depth N]
+cartograph trace <symbol> [--repo-path <path>] [--depth N]
+cartograph reset [repo-path] [--yes]
 ```
 
-## Two output modes
-1. **Static files** (`cartograph generate`): Generates a root CLAUDE.md + subdirectory CLAUDE.md files + domain-level context docs. Committed to repo. AI tools read them on session start. Zero ongoing cost.
-2. **MCP server** (`cartograph serve`): Local server that AI tools query on-demand for dynamic questions — blast radius, dependency chains, flow tracing, similar code. Answers come from the pre-built index, not live file scanning.
+Notes:
 
-## Code conventions
-- Strict TypeScript. No `any` except Tree-sitter interop.
-- Database access through repository classes in `src/db/repositories/`.
-- Indexer modules (ast-parser, dep-graph, embedder, profiler) are independent — communicate through the database only.
-- Output generators in `src/output/` read from the database and produce files. They never call indexer modules directly.
-- MCP server handlers in `src/mcp/` are thin wrappers around database queries.
-- Dependency injection for DB connections and API clients. No singletons.
-- Errors: throw typed errors (`IndexError`, `ParseError`, `GenerateError`). Never swallow silently.
-- All LLM calls through `src/utils/llm.ts`. Only used in pattern extraction (profiler), not in core indexing.
-- Config from `.cartograph.yml` in repo root + env vars for secrets.
+- `index --run-migrations` is required on first use unless migrations were already run separately.
+- `serve` uses stdio transport by default. There is no `--stdio` flag.
+- `uses` and `trace` expect fully qualified PHP symbol names.
+- `impact` expects a file path relative to the indexed repo root.
 
-## Database
-- SQLite via better-sqlite3. Synchronous API — no async/await on DB calls.
-- DB file: `~/.cartograph/cartograph.db` (configurable via `CARTOGRAPH_DB_PATH`)
-- Migrations in `src/db/migrations/`, numbered sequentially.
-- Key tables: `repos`, `files`, `symbols`, `symbol_references`
-- PRAGMAs: WAL mode, foreign keys ON, busy timeout 5000ms
-- Tests use in-memory SQLite (`:memory:`) — no external DB needed
-- PHP qualified names use `\\`: `App\\Services\\UserService::findById`
-- Symbol search uses `COLLATE NOCASE` for case-insensitive matching
+## MCP Tools
+
+Current MCP tools:
+
+- `cartograph_status`
+- `cartograph_find`
+- `cartograph_symbol`
+- `cartograph_deps`
+- `cartograph_dependents`
+- `cartograph_blast_radius`
+- `cartograph_compare`
+- `cartograph_flow`
+
+## Implementation Notes
+
+- File discovery prefers `git ls-files --cached --others --exclude-standard`, with a `fast-glob` fallback.
+- The indexer is incremental and uses file content hashes to detect changed files.
+- The parser only supports PHP even though the file walker knows about some other extensions.
+- Output generators read indexed data from SQLite and do not rescan the codebase.
+- `cartograph_compare` may read source files from the repo to inline short method bodies in responses.
+- `serve`, `uses`, `impact`, `trace`, and `generate` all require the target repo to have already been indexed.
+
+## Configuration
+
+Supported `.cartograph.yml` keys today:
+
+```yaml
+languages:
+  - php
+
+exclude:
+  - vendor/
+  - node_modules/
+  - .git/
+
+database:
+  path: /Users/you/.cartograph/cartograph.db
+```
+
+Notes:
+
+- Keep `languages` set to `php` for now.
+- Extra excludes are merged with the defaults.
+- `CARTOGRAPH_DB_PATH` can override the default database location.
 
 ## Testing
-- Unit tests use fixtures in `tests/fixtures/` (mini Laravel project)
-- All DB tests use in-memory SQLite — no Docker or external DB needed
-- `tests/setup.ts` exports `createTestDb()` for fresh in-memory DB with migrations
-- Mock external APIs (embedding, LLM) in unit tests
-- Output generators tested by snapshot comparison (expected output vs actual)
 
-## Key decisions
-- RAG not fine-tuning — index + retrieve, never train on codebases
-- Symbol-level granularity — functions/methods/classes are the units
-- Incremental indexing via file content hashing
-- SQLite over PostgreSQL — zero-config, single file, no Docker needed
-- CLI-first, outputs consumed by other AI tools
-- MCP server is read-only — it queries the index, never modifies code
+- Tests use SQLite, usually `:memory:`.
+- `tests/setup.ts` exports `createTestDb()` for a migrated in-memory database.
+- If `better-sqlite3` fails with a `NODE_MODULE_VERSION` mismatch after switching Node versions, run `npm rebuild better-sqlite3`.
 
-## Output file conventions
-- Generated files go in `.cartograph/` directory at repo root
-- Root CLAUDE.md references `.cartograph/` docs, doesn't inline everything
-- Each subdirectory CLAUDE.md covers that module's architecture, key classes, patterns, gotchas
-- All generated content includes a header: `<!-- Generated by Cartograph. Do not edit manually. -->`
-- Flow docs named by domain: `.cartograph/flows/payment-flow.md`, `.cartograph/flows/auth-flow.md`
-- Dependency maps: `.cartograph/deps/service-dependencies.md`
+## Development Notes
 
-## PHP-specific gotchas
-- Namespace resolution: `use` statements + aliases affect qualified names
-- Laravel facades are container proxies, not static calls — handle in enrichment pass
-- Tree-sitter PHP grammar: use `php` (not `php_only`) for `<?php` tag handling
-- Traits = copy-paste inclusion. Classes using a trait have all its methods.
-- Magic methods (`__construct`, `__get`, etc.) — index but flag as magic
-- Dynamic calls (`$this->$method()`) — mark unresolvable, don't try to resolve
-
-## Phase boundaries
-- **Phase 1:** Index + static file generation. CLI outputs CLAUDE.md tree. ✅
-- **Phase 2:** MCP server for dynamic queries. ✅
-- **Phase 3:** Watch mode (re-index on file change) + CI integration.
+- `docker-compose.yml` exists for optional future PostgreSQL experiments; it is not required by the current application flow.
+- Keep docs aligned with the current implementation. Do not document embeddings, LLM summarization, Redis caching, subdirectory `CLAUDE.md` generation, or non-PHP parsing unless the code actually supports them.

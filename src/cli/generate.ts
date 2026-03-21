@@ -9,7 +9,7 @@ import { GenerateError } from '../errors.js';
 
 export function createGenerateCommand(): Command {
   return new Command('generate')
-    .description('Inject Cartograph tool guidance into your CLAUDE.md')
+    .description('Generate Cartograph context files and inject tool guidance into your CLAUDE.md')
     .argument('<repo-path>', 'Path to the indexed repository')
     .option('--claude-md <path>', 'Path to CLAUDE.md to inject into (default: auto-detect)')
     .action((repoPath: string, opts: { claudeMd?: string }) => {
@@ -18,6 +18,7 @@ export function createGenerateCommand(): Command {
 
       try {
         const pipeline = new GeneratePipeline(db);
+        pipeline.run(repoPath);
         const section = pipeline.generateClaudeMdContent(repoPath);
 
         // Resolve CLAUDE.md path
@@ -30,6 +31,7 @@ export function createGenerateCommand(): Command {
         writeFileSync(claudeMdPath, updated);
 
         const verb = existing.includes('CARTOGRAPH:START') ? 'Updated' : 'Added';
+        console.log(`Generated Cartograph docs in ${resolve(repoPath, '.cartograph')}`);
         console.log(`\n${verb} Cartograph section in ${claudeMdPath}\n`);
       } catch (err) {
         if (err instanceof GenerateError) {

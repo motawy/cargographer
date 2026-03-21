@@ -1,6 +1,8 @@
 import { Command } from 'commander';
+import { resolve } from 'path';
 import { loadConfig } from '../config.js';
 import { openDatabase } from '../db/connection.js';
+import { RepoRepository } from '../db/repositories/repo-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
 
 export function createUsesCommand(): Command {
@@ -14,9 +16,19 @@ export function createUsesCommand(): Command {
       const db = openDatabase(config.database);
 
       try {
+        const repoPath = resolve(opts.repoPath);
+        const repo = new RepoRepository(db).findByPath(repoPath);
+        if (!repo) {
+          console.error(`No index found for ${repoPath}. Run \`cartograph index\` first.`);
+          process.exit(1);
+        }
+
         const symbolRows = db.prepare(
-          'SELECT id, qualified_name, kind FROM symbols WHERE qualified_name = ?'
-        ).all(symbol) as { id: number; qualified_name: string; kind: string }[];
+          `SELECT s.id, s.qualified_name, s.kind
+           FROM symbols s
+           JOIN files f ON s.file_id = f.id
+           WHERE f.repo_id = ? AND s.qualified_name = ?`
+        ).all(repo.id, symbol) as { id: number; qualified_name: string; kind: string }[];
 
         if (symbolRows.length === 0) {
           console.error(`Symbol not found: ${symbol}`);
