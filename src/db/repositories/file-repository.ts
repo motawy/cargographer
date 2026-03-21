@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { parseSqliteTimestamp } from '../../utils/sqlite-time.js';
 
 export interface FileRecord {
   id: number;
@@ -22,9 +23,9 @@ export class FileRepository {
   ): FileRecord {
     this.db.prepare(
       `INSERT INTO files (repo_id, path, language, hash, last_indexed_at, lines_of_code)
-       VALUES (?, ?, ?, ?, datetime('now'), ?)
+       VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)
        ON CONFLICT (repo_id, path)
-       DO UPDATE SET hash = excluded.hash, last_indexed_at = datetime('now'), lines_of_code = excluded.lines_of_code`
+       DO UPDATE SET hash = excluded.hash, last_indexed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lines_of_code = excluded.lines_of_code`
     ).run(repoId, path, language, hash, linesOfCode);
 
     const row = this.db.prepare(
@@ -64,7 +65,7 @@ export class FileRepository {
       path: row.path as string,
       language: row.language as string,
       hash: row.hash as string,
-      lastIndexedAt: new Date(row.last_indexed_at as string),
+      lastIndexedAt: parseSqliteTimestamp(row.last_indexed_at as string),
       linesOfCode: (row.lines_of_code as number) || null,
     };
   }

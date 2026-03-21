@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase } from '../../src/db/connection.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import { RepoRepository } from '../../src/db/repositories/repo-repository.js';
@@ -10,6 +10,10 @@ import { handleStatus } from '../../src/mcp/tools/status.js';
 import type { ParsedSymbol } from '../../src/types.js';
 
 describe('cartograph_status', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('reports additional sources and unresolved trust breakdown', () => {
     const db = openDatabase({ path: ':memory:' });
 
@@ -282,6 +286,27 @@ describe('cartograph_status', () => {
 
       expect(result).toContain('DB schema: 1 current tables, 1 columns, 0 foreign keys (from 0 SQL files, 0 raw definitions)');
       expect(result).toContain('DB schema source: live database import');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('treats sqlite repo timestamps as UTC when computing age', () => {
+    const db = openDatabase({ path: ':memory:' });
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-03-21T10:00:05.000Z'));
+
+      runMigrations(db);
+
+      const repoRepo = new RepoRepository(db);
+      const repo = repoRepo.findOrCreate('/test/utc-status', 'utc-status');
+      db.prepare("UPDATE repos SET last_indexed_at = '2026-03-21 10:00:00' WHERE id = ?").run(repo.id);
+
+      const result = handleStatus({ db, repoId: repo.id });
+
+      expect(result).toContain('Last indexed (UTC): 2026-03-21T10:00:00.000Z (5s ago)');
     } finally {
       db.close();
     }

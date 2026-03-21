@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { parseSqliteTimestamp } from '../../utils/sqlite-time.js';
 
 export interface RepoRecord {
   id: number;
@@ -33,7 +34,7 @@ export class RepoRepository {
 
   updateLastIndexed(id: number): void {
     this.db.prepare(
-      "UPDATE repos SET last_indexed_at = datetime('now') WHERE id = ?"
+      "UPDATE repos SET last_indexed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?"
     ).run(id);
   }
 
@@ -42,8 +43,8 @@ export class RepoRepository {
       id: row.id as number,
       path: row.path as string,
       name: row.name as string,
-      createdAt: new Date(row.created_at as string),
-      lastIndexedAt: row.last_indexed_at ? new Date(row.last_indexed_at as string) : null,
+      createdAt: parseSqliteTimestamp(row.created_at as string),
+      lastIndexedAt: row.last_indexed_at ? parseSqliteTimestamp(row.last_indexed_at as string) : null,
     };
   }
 }

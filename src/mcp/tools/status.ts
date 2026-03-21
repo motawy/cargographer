@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { DbSchemaRepository } from '../../db/repositories/db-schema-repository.js';
+import { parseSqliteTimestamp } from '../../utils/sqlite-time.js';
 import {
   analyzeUnresolvedReferences,
   formatUnresolvedCategory,
@@ -106,7 +107,7 @@ export function handleStatus(deps: StatusDeps): string {
   const currentSchemaCounts = schemaRepo.countCurrentByRepo(repoId);
 
   const lastIndexed = repo.last_indexed_at
-    ? new Date(repo.last_indexed_at as string)
+    ? parseSqliteTimestamp(repo.last_indexed_at as string)
     : null;
 
   const lines: string[] = [];
@@ -115,7 +116,7 @@ export function handleStatus(deps: StatusDeps): string {
 
   if (lastIndexed) {
     const ago = timeSince(lastIndexed);
-    lines.push(`Last indexed: ${lastIndexed.toISOString()} (${ago})`);
+    lines.push(`Last indexed (UTC): ${lastIndexed.toISOString()} (${ago})`);
     const hoursAgo = (Date.now() - lastIndexed.getTime()) / (1000 * 60 * 60);
     if (hoursAgo > 24) {
       lines.push(`\u26a0\ufe0f  Index is ${Math.floor(hoursAgo / 24)} day(s) old. Consider re-running \`cartograph index\`.`);
