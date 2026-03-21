@@ -1,3 +1,4 @@
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../../src/db/connection.js';
 import { runMigrations } from '../../src/db/migrate.js';
@@ -160,6 +161,157 @@ describe('cartograph_table_usage', () => {
       expect(result).toContain('$id -> quote_id');
       expect(result).toContain('App\\Model\\RecurringQuoteModel::getEntityClass');
     } finally {
+      db.close();
+    }
+  });
+
+  it('shows direct table-name references and hides tests by default', () => {
+    const db = openDatabase({ path: ':memory:' });
+    const tmpDir = '/tmp/cartograph-table-usage-direct-test';
+
+    try {
+      mkdirSync(`${tmpDir}/src/Builder`, { recursive: true });
+      mkdirSync(`${tmpDir}/tests/Builder`, { recursive: true });
+      writeFileSync(`${tmpDir}/src/Builder/RecurringQuoteSectionsBuilder.php`, [
+        '<?php',
+        'namespace App\\Builder;',
+        'class RecurringQuoteSectionsBuilder {',
+        '    public function loadArray(): array',
+        '    {',
+        "        return ['table' => 'recurring_quote_sections'];",
+        '    }',
+        '}',
+      ].join('\n'));
+      writeFileSync(`${tmpDir}/tests/Builder/RecurringQuoteSectionsBuilderTest.php`, [
+        '<?php',
+        'namespace Tests\\Builder;',
+        'class RecurringQuoteSectionsBuilderTest {',
+        '    public function testUsesTableName(): void',
+        '    {',
+        "        $this->assertSame('recurring_quote_sections', 'recurring_quote_sections');",
+        '    }',
+        '}',
+      ].join('\n'));
+
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const refRepo = new ReferenceRepository(db);
+      const schemaRepo = new DbSchemaRepository(db);
+      const symbolSchemaRepo = new SymbolSchemaRepository(db);
+
+      const repo = repoRepo.findOrCreate(tmpDir, 'direct-refs');
+      const builderFile = fileRepo.upsert(repo.id, 'src/Builder/RecurringQuoteSectionsBuilder.php', 'php', 'b1', 8);
+      const testFile = fileRepo.upsert(repo.id, 'tests/Builder/RecurringQuoteSectionsBuilderTest.php', 'php', 't1', 8);
+
+      const builder: ParsedSymbol = {
+        name: 'RecurringQuoteSectionsBuilder',
+        qualifiedName: 'App\\Builder\\RecurringQuoteSectionsBuilder',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'loadArray',
+            qualifiedName: 'App\\Builder\\RecurringQuoteSectionsBuilder::loadArray',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 4,
+            lineEnd: 7,
+            signature: 'loadArray(): array',
+            returnType: 'array',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+
+      const builderTest: ParsedSymbol = {
+        name: 'RecurringQuoteSectionsBuilderTest',
+        qualifiedName: 'Tests\\Builder\\RecurringQuoteSectionsBuilderTest',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'testUsesTableName',
+            qualifiedName: 'Tests\\Builder\\RecurringQuoteSectionsBuilderTest::testUsesTableName',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 4,
+            lineEnd: 7,
+            signature: 'testUsesTableName(): void',
+            returnType: 'void',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+
+      symbolRepo.replaceFileSymbols(builderFile.id, [builder]);
+      symbolRepo.replaceFileSymbols(testFile.id, [builderTest]);
+
+      schemaRepo.replaceCurrentSchemaFromImport(repo.id, [
+        {
+          name: 'recurring_quote_sections',
+          normalizedName: 'recurring_quote_sections',
+          sourcePath: null,
+          lineStart: null,
+          lineEnd: null,
+          columns: [],
+          foreignKeys: [],
+        },
+      ]);
+
+      const result = handleTableUsage({
+        repoId: repo.id,
+        repoPath: tmpDir,
+        fileRepo,
+        symbolRepo,
+        schemaRepo,
+        symbolSchemaRepo,
+        refRepo,
+      }, {
+        name: 'recurring_quote_sections',
+        limit: 10,
+      });
+
+      expect(result).toContain('No Doctrine-style entity mappings were found for this table.');
+      expect(result).toContain('Direct Table Name References');
+      expect(result).toContain('App\\Builder\\RecurringQuoteSectionsBuilder::loadArray');
+      expect(result).not.toContain('Tests\\Builder\\RecurringQuoteSectionsBuilderTest::testUsesTableName');
+
+      const withTests = handleTableUsage({
+        repoId: repo.id,
+        repoPath: tmpDir,
+        fileRepo,
+        symbolRepo,
+        schemaRepo,
+        symbolSchemaRepo,
+        refRepo,
+      }, {
+        name: 'recurring_quote_sections',
+        limit: 10,
+        includeTests: true,
+      });
+
+      expect(withTests).toContain('#### Tests');
+      expect(withTests).toContain('Tests\\Builder\\RecurringQuoteSectionsBuilderTest::testUsesTableName');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
       db.close();
     }
   });

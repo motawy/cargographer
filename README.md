@@ -132,12 +132,13 @@ Import current schema directly from PostgreSQL into Cartograph's canonical schem
 
 ### `cartograph table-usage <table> --repo-path <path>`
 
-Bridge schema to code by showing mapped entities, mapped columns, and code references for a table.
+Bridge schema to code by showing mapped entities, mapped columns, entity-based touchpoints, and direct table-name references in source files.
 
 Useful options:
 
 - `--depth <n>` for transitive code-reference depth
 - `--limit <n>` to control how many code touchpoints are shown
+- `--include-tests` to include test files in the reported touchpoints and direct references
 
 ### `cartograph search-content <query> --repo-path <path>`
 
@@ -192,7 +193,7 @@ The MCP server currently exposes these tools:
 - `cartograph_schema` - list or search current database tables
 - `cartograph_table` - inspect current SQL table state, its columns, and foreign key relationships
 - `cartograph_table_graph` - traverse the foreign-key neighborhood around a table
-- `cartograph_table_usage` - bridge a table to mapped entities and code references
+- `cartograph_table_usage` - bridge a table to mapped entities, entity-based touchpoints, and direct table-name references
 - `cartograph_find` - search symbols by name, kind, and optional path filter
 - `cartograph_search_content` - search method bodies and other indexed source text by literal substring
 - `cartograph_symbol` - inspect a symbol and its relationships

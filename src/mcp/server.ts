@@ -107,13 +107,14 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_table_usage ---
   server.tool(
     'cartograph_table_usage',
-    'Bridge schema to code: show mapped entities and code references for a table.',
+    'Bridge schema to code: show mapped entities, entity-based touchpoints, and direct table-name references for a table.',
     {
       name: z.string().describe('Table name, optionally schema-qualified'),
       depth: z.number().min(1).max(5).optional().describe('Transitive code-reference depth (default 3)'),
       limit: z.number().min(1).max(100).optional().describe('Max code touchpoints to show (default 25)'),
+      includeTests: z.boolean().optional().describe('Include test code in touchpoints and direct table-name references (default false)'),
     },
-    async ({ name, depth, limit }) => wrap(() => handleTableUsage(deps, { name, depth, limit }))
+    async ({ name, depth, limit, includeTests }) => wrap(() => handleTableUsage(deps, { name, depth, limit, includeTests }))
   );
 
   // --- cartograph_find ---

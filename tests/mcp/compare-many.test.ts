@@ -14,7 +14,7 @@ import type { ParsedSymbol } from '../../src/types.js';
 function makeClassWithMethods(
   name: string,
   qn: string,
-  methods: { name: string; line: number }[]
+  methods: { name: string; line: number; span?: number }[]
 ): ParsedSymbol {
   return {
     name,
@@ -33,7 +33,7 @@ function makeClassWithMethods(
       kind: 'method' as const,
       visibility: 'public',
       lineStart: method.line,
-      lineEnd: method.line + 2,
+      lineEnd: method.line + (method.span ?? 2),
       signature: null,
       returnType: null,
       docblock: null,
@@ -155,6 +155,64 @@ describe('cartograph_compare_many', () => {
 
       expect(result).toContain('Baseline implementations for missing methods');
       expect(result).toContain("return 'JobCostCenters'");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('shows truncated baseline snippets for longer missing methods', () => {
+    const repoRepo = new RepoRepository(db);
+    const fileRepo = new FileRepository(db);
+    const symbolRepo = new SymbolRepository(db);
+    const refRepo = new ReferenceRepository(db);
+
+    const tmpDir = '/tmp/cartograph-compare-many-long-body-test';
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(`${tmpDir}/baseline.php`, [
+      '<?php',
+      'class BaselineLong {',
+      '    protected function createPayload(): array',
+      '    {',
+      "        $payload = ['table' => 'recurring_quote_sections'];",
+      "        $payload['enabled'] = true;",
+      "        $payload['depth'] = 3;",
+      "        $payload['mode'] = 'sync';",
+      "        $payload['owner'] = 'api';",
+      "        $payload['retry'] = false;",
+      "        $payload['scope'] = 'rest';",
+      "        $payload['source'] = 'builder';",
+      '        return $payload;',
+      '    }',
+      '}',
+    ].join('\n'));
+    writeFileSync(`${tmpDir}/target.php`, [
+      '<?php',
+      'class TargetLong {',
+      '}',
+    ].join('\n'));
+
+    try {
+      const repo = repoRepo.findOrCreate(tmpDir, 'compare-many-long-body');
+      const baselineFile = fileRepo.upsert(repo.id, 'baseline.php', 'php', 'lb1', 15);
+      const targetFile = fileRepo.upsert(repo.id, 'target.php', 'php', 'lb2', 3);
+
+      symbolRepo.replaceFileSymbols(baselineFile.id, [
+        makeClassWithMethods('BaselineLong', 'Test\\BaselineLong', [
+          { name: 'createPayload', line: 3, span: 11 },
+        ]),
+      ]);
+      symbolRepo.replaceFileSymbols(targetFile.id, [
+        makeClassWithMethods('TargetLong', 'Test\\TargetLong', []),
+      ]);
+
+      const result = handleCompareMany(
+        { repoId: repo.id, repoPath: tmpDir, symbolRepo, refRepo },
+        { baseline: 'Test\\BaselineLong', others: ['Test\\TargetLong'] }
+      );
+
+      expect(result).toContain("['table' => 'recurring_quote_sections']");
+      expect(result).toContain("$payload['owner'] = 'api';");
+      expect(result).toContain('...');
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }

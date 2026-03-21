@@ -5,7 +5,8 @@ import type { ToolDeps } from '../types.js';
 import type { SymbolRecord } from '../../db/repositories/symbol-repository.js';
 import type { ReferenceRecord } from '../../db/repositories/reference-repository.js';
 
-const MAX_INLINE_LINES = 5;
+const MAX_INLINE_METHOD_SPAN = 40;
+const MAX_INLINE_BODY_LINES = 8;
 
 export interface ComparedChild {
   symbol: SymbolRecord;
@@ -158,7 +159,9 @@ function loadMethodBodies(
   symbolRepo: ToolDeps['symbolRepo'],
   bodyMap: Map<number, string>
 ): void {
-  const shortMethods = symbols.filter((symbol) => symbol.lineEnd - symbol.lineStart <= MAX_INLINE_LINES);
+  const shortMethods = symbols.filter((symbol) =>
+    symbol.kind === 'method' && symbol.lineEnd - symbol.lineStart <= MAX_INLINE_METHOD_SPAN
+  );
   if (shortMethods.length === 0) return;
 
   const config = loadConfig(repoPath);
@@ -185,8 +188,12 @@ function loadMethodBodies(
           .slice(method.lineStart, method.lineEnd)
           .map((line) => line.trim())
           .filter((line) => line !== '' && line !== '{' && line !== '}');
-        if (bodyLines.length > 0 && bodyLines.length <= 3) {
-          bodyMap.set(method.id, bodyLines.join('\n  '));
+        if (bodyLines.length > 0) {
+          const previewLines = bodyLines.slice(0, MAX_INLINE_BODY_LINES);
+          if (bodyLines.length > MAX_INLINE_BODY_LINES) {
+            previewLines.push('...');
+          }
+          bodyMap.set(method.id, previewLines.join('\n  '));
         }
       }
     } catch {

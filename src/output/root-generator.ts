@@ -38,7 +38,7 @@ export function generateRoot(stats: RepoStats, conventions?: ConventionsData): s
   lines.push(`- **cartograph_schema** \`[query]\` — list or search current database tables with column and foreign-key counts`);
   lines.push(`- **cartograph_table** \`<table>\` — inspect the exact current shape of a table and its direct foreign-key relationships`);
   lines.push(`- **cartograph_table_graph** \`<table>\` — walk the foreign-key neighborhood around a table to understand connected areas`);
-  lines.push(`- **cartograph_table_usage** \`<table>\` — bridge database tables to mapped entities and code touchpoints`);
+  lines.push(`- **cartograph_table_usage** \`<table>\` — bridge database tables to mapped entities, entity touchpoints, and direct table-name references`);
   lines.push(`- **cartograph_search_content** \`<query>\` — search method bodies and other indexed source text by literal substring`);
   lines.push(`- **cartograph_symbol** \`<name>\` — look up a class/interface/function and its relationships`);
   lines.push(`- **cartograph_deps** \`<symbol>\` — what does this symbol depend on? (directed graph, configurable depth)`);
