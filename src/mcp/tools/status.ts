@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { DbSchemaRepository } from '../../db/repositories/db-schema-repository.js';
 import {
   analyzeUnresolvedReferences,
   formatUnresolvedCategory,
@@ -12,6 +13,7 @@ interface StatusDeps {
 
 export function handleStatus(deps: StatusDeps): string {
   const { db, repoId } = deps;
+  const schemaRepo = new DbSchemaRepository(db);
 
   const repo = db.prepare(
     'SELECT name, path, last_indexed_at FROM repos WHERE id = ?'
@@ -100,6 +102,7 @@ export function handleStatus(deps: StatusDeps): string {
        AND f.path NOT LIKE 'tests/%'
        AND f.path NOT LIKE 'cache/%'`
   ).get(repoId) as { total: number };
+  const schemaCounts = schemaRepo.countByRepo(repoId);
 
   const lastIndexed = repo.last_indexed_at
     ? new Date(repo.last_indexed_at as string)
@@ -131,6 +134,12 @@ export function handleStatus(deps: StatusDeps): string {
   }
   lines.push(`- Symbols: ${symbolCounts.total} (${symbolCounts.classes} classes, ${symbolCounts.methods} methods, ${symbolCounts.interfaces} interfaces, ${symbolCounts.traits} traits, ${symbolCounts.functions} functions)`);
   lines.push(`- References: ${refCounts.total} (${refCounts.resolved} resolved, ${refCounts.unresolved} unresolved)`);
+  if (schemaCounts.tables > 0) {
+    lines.push(
+      `- DB schema: ${schemaCounts.tables} tables, ${schemaCounts.columns} columns, ` +
+      `${schemaCounts.foreignKeys} foreign keys (${schemaCounts.files} SQL files)`
+    );
+  }
 
   if (refCounts.total > 0) {
     const pct = formatRate(refCounts.resolved, refCounts.total);

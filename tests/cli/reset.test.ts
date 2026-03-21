@@ -21,6 +21,9 @@ describe('resetDatabase', () => {
 
       expect(listTables(db)).toEqual([
         '_migrations',
+        'db_columns',
+        'db_foreign_keys',
+        'db_tables',
         'files',
         'repos',
         'symbol_references',
@@ -40,6 +43,9 @@ describe('resetDatabase', () => {
       expect(() => resetDatabase(db, MIGRATIONS_DIR)).not.toThrow();
       expect(listTables(db)).toEqual([
         '_migrations',
+        'db_columns',
+        'db_foreign_keys',
+        'db_tables',
         'files',
         'repos',
         'symbol_references',
@@ -49,7 +55,7 @@ describe('resetDatabase', () => {
       const appliedCount = db.prepare(
         'SELECT COUNT(*) AS count FROM _migrations'
       ).get() as { count: number };
-      expect(appliedCount.count).toBe(4);
+      expect(appliedCount.count).toBe(5);
     } finally {
       db.close();
     }

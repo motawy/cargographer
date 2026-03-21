@@ -8,6 +8,7 @@ import { createGenerateCommand } from './generate.js';
 import { createResetCommand } from './reset.js';
 import { createServeCommand } from './serve.js';
 import { createStatusCommand } from './status.js';
+import { createTableCommand } from './table.js';
 
 const program = new Command();
 
@@ -23,6 +24,7 @@ program.addCommand(createTraceCommand());
 program.addCommand(createGenerateCommand());
 program.addCommand(createResetCommand());
 program.addCommand(createStatusCommand());
+program.addCommand(createTableCommand());
 program.addCommand(createServeCommand());
 
 program.parse();

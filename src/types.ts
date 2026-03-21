@@ -56,6 +56,34 @@ export interface ParsedReference {
   line: number;
 }
 
+export interface ParsedDbTable {
+  name: string;
+  normalizedName: string;
+  lineStart: number;
+  lineEnd: number;
+  columns: ParsedDbColumn[];
+  foreignKeys: ParsedDbForeignKey[];
+}
+
+export interface ParsedDbColumn {
+  name: string;
+  normalizedName: string;
+  dataType: string | null;
+  isNullable: boolean;
+  defaultValue: string | null;
+  ordinalPosition: number;
+  lineNumber: number | null;
+}
+
+export interface ParsedDbForeignKey {
+  constraintName: string | null;
+  sourceColumns: string[];
+  targetTable: string;
+  normalizedTargetTable: string;
+  targetColumns: string[];
+  lineNumber: number | null;
+}
+
 export interface CartographConfig {
   languages: string[];
   exclude: string[];

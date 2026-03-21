@@ -48,7 +48,7 @@ describe('MCP Server Integration', () => {
     db.close();
   });
 
-  it('lists all 8 tools', async () => {
+  it('lists all 9 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map(t => t.name).sort();
     expect(names).toEqual([
@@ -60,6 +60,7 @@ describe('MCP Server Integration', () => {
       'cartograph_flow',
       'cartograph_status',
       'cartograph_symbol',
+      'cartograph_table',
     ]);
   });
 

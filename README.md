@@ -6,7 +6,8 @@ Cartograph is a TypeScript CLI and MCP server that indexes a PHP codebase into a
 
 ## Current Scope
 
-- PHP indexing only
+- PHP symbol/reference indexing
+- SQL DDL schema indexing for `.sql` files when `sql` is enabled in config
 - Local SQLite database via `better-sqlite3`
 - No Docker required for normal use
 - No embeddings, LLM summarization, Redis, or pgvector in the current implementation
@@ -22,6 +23,7 @@ Cartograph is a TypeScript CLI and MCP server that indexes a PHP codebase into a
 - Discovers source files using `git ls-files` when available, with `.cartograph.yml` excludes applied
 - Can index explicit additional source roots outside the repo via `.cartograph.yml` `additional_sources`
 - Parses PHP with Tree-sitter and indexes classes, interfaces, traits, enums, functions, methods, properties, and constants
+- Parses SQL DDL and indexes tables, columns, and foreign keys
 - Extracts references such as inheritance, implementations, trait use, instantiation, static calls, self calls, type hints, and class references
 - Stores the index locally so CLI commands and MCP tools can answer structural questions without rescanning the repo
 
@@ -103,6 +105,10 @@ Useful options:
 
 Show index freshness, coverage, and unresolved-reference trust breakdown for an already indexed repo.
 
+### `cartograph table <table> --repo-path <path>`
+
+Inspect an indexed SQL table: columns, outbound foreign keys, and inbound references from other tables.
+
 ### `cartograph serve --repo-path <path>`
 
 Start the MCP server for an indexed repo using stdio transport.
@@ -140,6 +146,7 @@ Drop all indexed data and recreate the schema from migrations.
 The MCP server currently exposes these tools:
 
 - `cartograph_status` - show index freshness, coverage, and unresolved-reference trust breakdown
+- `cartograph_table` - inspect a SQL table, its columns, and foreign key relationships
 - `cartograph_find` - search symbols by name, kind, and optional path filter
 - `cartograph_symbol` - inspect a symbol and its relationships
 - `cartograph_deps` - trace forward dependencies
@@ -170,6 +177,7 @@ Supported keys today:
 ```yaml
 languages:
   - php
+  - sql
 
 exclude:
   - vendor/
@@ -186,7 +194,7 @@ database:
 
 Notes:
 
-- `languages` should currently stay at `php`. The file walker knows about some other extensions, but parsing support is only implemented for PHP.
+ - `languages` supports `php` and `sql`. PHP powers symbol/reference indexing; SQL powers schema graph extraction for `.sql` DDL files.
 - Default excludes are `vendor/`, `node_modules/`, and `.git/`.
 - `additional_sources` paths may be relative to the repo root or absolute. Indexed files from those roots are stored with an `@label/` path prefix such as `@simpro-base/SystemConfig.php`.
 - The database path defaults to `~/.cartograph/cartograph.db` and can also be overridden with `CARTOGRAPH_DB_PATH`.
@@ -225,6 +233,7 @@ npm install
 npm run build
 npm run dev -- index /path/to/repo --run-migrations
 npm run dev -- status /path/to/repo
+npm run dev -- table users --repo-path /path/to/repo
 npm run dev -- generate /path/to/repo
 npm run dev -- serve --repo-path /path/to/repo
 npm test

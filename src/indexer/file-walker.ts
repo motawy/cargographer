@@ -8,6 +8,7 @@ import type { AdditionalSourceConfig, DiscoveredFile, CartographConfig } from '.
 
 const LANGUAGE_EXTENSIONS: Record<string, string> = {
   '.php': 'php',
+  '.sql': 'sql',
   '.ts': 'typescript',
   '.tsx': 'typescript',
   '.py': 'python',

@@ -6,10 +6,12 @@ import { RepoRepository } from '../db/repositories/repo-repository.js';
 import { FileRepository } from '../db/repositories/file-repository.js';
 import { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
+import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
 import { extractReferences } from './reference-extractor.js';
 import { IndexError } from '../errors.js';
 import { basename, resolve } from 'path';
-import { appendFileSync, writeFileSync } from 'fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'fs';
+import { extractSqlSchema } from './sql-schema-extractor.js';
 
 export interface PipelineOptions {
   verbose?: boolean;
@@ -21,12 +23,14 @@ export class IndexPipeline {
   private fileRepo: FileRepository;
   private symbolRepo: SymbolRepository;
   private referenceRepo: ReferenceRepository;
+  private dbSchemaRepo: DbSchemaRepository;
 
   constructor(db: Database.Database) {
     this.repoRepo = new RepoRepository(db);
     this.fileRepo = new FileRepository(db);
     this.symbolRepo = new SymbolRepository(db);
     this.referenceRepo = new ReferenceRepository(db);
+    this.dbSchemaRepo = new DbSchemaRepository(db);
   }
 
   run(
@@ -83,6 +87,26 @@ export class IndexPipeline {
       const file = toProcess[i];
       try {
         const fileStart = Date.now();
+
+        if (file.language === 'sql') {
+          const fileRecord = this.fileRepo.upsert(
+            repo.id,
+            file.relativePath,
+            file.language,
+            file.hash,
+            this.countLines(file.absolutePath)
+          );
+          this.symbolRepo.replaceFileSymbols(fileRecord.id, []);
+          const tables = extractSqlSchema(file.absolutePath);
+          this.dbSchemaRepo.replaceFileSchema(fileRecord.id, tables);
+          if (opts.verbose) {
+            log(
+              `  [${i + 1}/${toProcess.length}] ${file.relativePath} — ${tables.length} tables (${this.elapsed(fileStart)})`
+            );
+          }
+          continue;
+        }
+
         const { symbols, linesOfCode, tree, context } = parser.parse(file);
         const fileRecord = this.fileRepo.upsert(
           repo.id,
@@ -91,6 +115,7 @@ export class IndexPipeline {
           file.hash,
           linesOfCode
         );
+        this.dbSchemaRepo.replaceFileSchema(fileRecord.id, []);
         const symbolIdMap = this.symbolRepo.replaceFileSymbols(fileRecord.id, symbols);
 
         // Extract and store references (best-effort)
@@ -158,6 +183,10 @@ export class IndexPipeline {
     const ms = Date.now() - since;
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  private countLines(filePath: string): number {
+    return readFileSync(filePath, 'utf-8').split('\n').length;
   }
 
   private computeChangeset(

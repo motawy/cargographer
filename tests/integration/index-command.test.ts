@@ -237,4 +237,65 @@ class BaseThing
       rmSync(extraDir, { recursive: true, force: true });
     }
   });
+
+  it('indexes sql schema files into table, column, and foreign key rows', () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'cartograph-sql-root-'));
+
+    try {
+      mkdirSync(join(repoDir, 'db'), { recursive: true });
+      writeFileSync(
+        join(repoDir, 'db', 'schema.sql'),
+        `CREATE TABLE users (
+  id INTEGER NOT NULL,
+  account_id INTEGER REFERENCES accounts(id)
+);
+
+CREATE TABLE orders (
+  id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+`
+      );
+
+      const pipeline = new IndexPipeline(db);
+      pipeline.run(repoDir, {
+        languages: ['sql'],
+        exclude: ['vendor/'],
+        additionalSources: [],
+        database: { path: ':memory:' },
+      });
+
+      const fileRows = db.prepare('SELECT path, language FROM files ORDER BY path').all() as {
+        path: string;
+        language: string;
+      }[];
+      expect(fileRows).toEqual([
+        { path: 'db/schema.sql', language: 'sql' },
+      ]);
+
+      const tableRows = db.prepare(
+        'SELECT name, normalized_name FROM db_tables ORDER BY normalized_name'
+      ).all() as { name: string; normalized_name: string }[];
+      expect(tableRows).toEqual([
+        { name: 'orders', normalized_name: 'orders' },
+        { name: 'users', normalized_name: 'users' },
+      ]);
+
+      const columnCount = db.prepare(
+        'SELECT COUNT(*) AS count FROM db_columns'
+      ).get() as { count: number };
+      expect(columnCount.count).toBe(4);
+
+      const fkRows = db.prepare(
+        'SELECT target_table FROM db_foreign_keys ORDER BY target_table'
+      ).all() as { target_table: string }[];
+      expect(fkRows).toEqual([
+        { target_table: 'accounts' },
+        { target_table: 'users' },
+      ]);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
 });

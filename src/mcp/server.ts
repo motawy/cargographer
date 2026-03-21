@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
+import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
 import type { ToolDeps, RepoStats } from './types.js';
 import { handleFind } from './tools/find.js';
 import { handleSymbol } from './tools/symbol.js';
@@ -12,6 +13,7 @@ import { handleDependents } from './tools/dependents.js';
 import { handleBlastRadius } from './tools/blast-radius.js';
 import { handleCompare } from './tools/compare.js';
 import { handleStatus } from './tools/status.js';
+import { handleTable } from './tools/table.js';
 
 interface ServerOptions {
   db: Database.Database;
@@ -22,12 +24,14 @@ interface ServerOptions {
 export function createServer(opts: ServerOptions): McpServer {
   const symbolRepo = new SymbolRepository(opts.db);
   const refRepo = new ReferenceRepository(opts.db);
+  const schemaRepo = new DbSchemaRepository(opts.db);
 
   const deps: ToolDeps = {
     repoId: opts.repoId,
     repoPath: opts.repoPath,
     symbolRepo,
     refRepo,
+    schemaRepo,
   };
 
   const stats = computeRepoStats(opts.db, opts.repoId);
@@ -55,6 +59,16 @@ export function createServer(opts: ServerOptions): McpServer {
     'Check index health: when it was last built, how many symbols/files are indexed, and whether a re-index is needed',
     {},
     async () => wrap(() => handleStatus({ db: opts.db, repoId: opts.repoId }))
+  );
+
+  // --- cartograph_table ---
+  server.tool(
+    'cartograph_table',
+    'Inspect a SQL table: columns, outbound foreign keys, and inbound references from other tables.',
+    {
+      name: z.string().describe('Table name, optionally schema-qualified (e.g. "users", "public.orders")'),
+    },
+    async ({ name }) => wrap(() => handleTable(deps, { name }))
   );
 
   // --- cartograph_find ---
