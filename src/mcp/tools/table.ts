@@ -39,11 +39,13 @@ export function handleTable(deps: TableDeps, params: TableParams): string {
 
   const lines: string[] = [];
   lines.push(`## ${table.name}`);
-  lines.push('Current schema state derived from ordered SQL migrations.');
+  lines.push('Current schema state from Cartograph\'s canonical schema layer.');
   if (table.filePath && table.lineStart !== null && table.lineEnd !== null) {
     lines.push(`Last table-level change: ${table.filePath}:${table.lineStart}-${table.lineEnd}`);
   } else if (table.filePath) {
     lines.push(`Last table-level change: ${table.filePath}`);
+  } else {
+    lines.push('Source: imported from a live database.');
   }
 
   lines.push('');

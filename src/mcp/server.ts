@@ -64,7 +64,7 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_table ---
   server.tool(
     'cartograph_table',
-    'Inspect the current SQL table state after replaying indexed .sql migrations: columns, outbound foreign keys, and inbound references from other tables.',
+    'Inspect current SQL table state: columns, outbound foreign keys, and inbound references from other tables.',
     {
       name: z.string().describe('Table name, optionally schema-qualified (e.g. "users", "public.orders")'),
     },

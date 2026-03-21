@@ -5,6 +5,7 @@ import { runMigrations } from '../db/migrate.js';
 import { IndexPipeline } from '../indexer/pipeline.js';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { importSchemaForRepo } from './schema-import.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -15,12 +16,12 @@ export function createIndexCommand(): Command {
     .option('--run-migrations', 'Run database migrations before indexing')
     .option('--verbose', 'Log every file as it is processed')
     .option('--log <path>', 'Write full log output to a file')
-    .action((repoPath: string, opts: { runMigrations?: boolean; verbose?: boolean; log?: string }) => {
+    .action(async (repoPath: string, opts: { runMigrations?: boolean; verbose?: boolean; log?: string }) => {
       const config = loadConfig(repoPath);
       const db = openDatabase(config.database);
 
       try {
-        if (opts.runMigrations) {
+        if (opts.runMigrations || config.schemaSource?.type === 'postgres') {
           console.log('Running migrations...');
           runMigrations(
             db,
@@ -33,6 +34,14 @@ export function createIndexCommand(): Command {
           verbose: opts.verbose,
           logFile: opts.log,
         });
+
+        if (config.schemaSource?.type === 'postgres') {
+          const summary = await importSchemaForRepo(db, repoPath, config);
+          console.log(
+            `DB schema: imported ${summary.tables} tables, ${summary.columns} columns, ` +
+            `${summary.foreignKeys} foreign keys from PostgreSQL`
+          );
+        }
       } finally {
         db.close();
       }

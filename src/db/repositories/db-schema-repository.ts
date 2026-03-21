@@ -200,6 +200,10 @@ export class DbSchemaRepository {
     doReplace();
   }
 
+  replaceCurrentSchemaFromImport(repoId: number, tables: MaterializedDbTable[]): void {
+    this.replaceCurrentSchema(repoId, tables, new Map());
+  }
+
   countCurrentByRepo(repoId: number): DbSchemaCounts {
     const row = this.db.prepare(
       `SELECT

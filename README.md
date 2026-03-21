@@ -107,7 +107,11 @@ Show index freshness, coverage, and unresolved-reference trust breakdown for an 
 
 ### `cartograph table <table> --repo-path <path>`
 
-Inspect the current indexed SQL table state after replaying ordered `.sql` migrations: columns, outbound foreign keys, and inbound references from other tables.
+Inspect the current indexed SQL table state: columns, outbound foreign keys, and inbound references from other tables.
+
+### `cartograph schema-import <repo-path>`
+
+Import current schema directly from PostgreSQL into Cartograph's canonical schema layer.
 
 ### `cartograph serve --repo-path <path>`
 
@@ -188,15 +192,24 @@ additional_sources:
   - path: ../../objects
     label: simpro-base
 
+schema_source:
+  type: postgres
+  host: localhost
+  port: 5434
+  user: pgsql
+  password: example
+  database: two
+
 database:
   path: /Users/you/.cartograph/cartograph.db
 ```
 
 Notes:
 
-- `languages` supports `php` and `sql`. PHP powers symbol/reference indexing; SQL powers raw schema extraction plus current-schema replay for ordered `.sql` migrations.
+- `languages` supports `php` and `sql`. PHP powers symbol/reference indexing; SQL powers raw schema extraction plus optional migration replay for current schema.
 - Default excludes are `vendor/`, `node_modules/`, and `.git/`.
 - `additional_sources` paths may be relative to the repo root or absolute. Indexed files from those roots are stored with an `@label/` path prefix such as `@simpro-base/SystemConfig.php`.
+- `schema_source.type` defaults to `migrations`. Set it to `postgres` to import live schema after indexing instead of replaying SQL migrations into `db_current_*`.
 - The database path defaults to `~/.cartograph/cartograph.db` and can also be overridden with `CARTOGRAPH_DB_PATH`.
 
 ## How It Works
@@ -234,6 +247,7 @@ npm run build
 npm run dev -- index /path/to/repo --run-migrations
 npm run dev -- status /path/to/repo
 npm run dev -- table <table-name> --repo-path /path/to/repo
+npm run dev -- schema-import /path/to/repo
 npm run dev -- generate /path/to/repo
 npm run dev -- serve --repo-path /path/to/repo
 npm test

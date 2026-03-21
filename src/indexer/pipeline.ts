@@ -142,20 +142,22 @@ export class IndexPipeline {
 
     log(`Parsing complete (${this.elapsed(parseStart)})`);
 
-    // 6. Rebuild current SQL schema from all discovered SQL migrations.
-    const sqlFiles = discovered.filter((file) => file.language === 'sql');
-    const fileIdsByPath = new Map(
-      this.fileRepo.listByRepo(repo.id).map((file) => [file.path, file.id] as const)
-    );
-    const currentSchema = sqlFiles.length > 0
-      ? buildCurrentSqlSchema(
-        sqlFiles.map((file) => ({
-          path: file.relativePath,
-          absolutePath: file.absolutePath,
-        }))
-      )
-      : [];
-    this.dbSchemaRepo.replaceCurrentSchema(repo.id, currentSchema, fileIdsByPath);
+    // 6. Rebuild current SQL schema from migrations unless live DB import is configured.
+    if (config.schemaSource?.type !== 'postgres') {
+      const sqlFiles = discovered.filter((file) => file.language === 'sql');
+      const fileIdsByPath = new Map(
+        this.fileRepo.listByRepo(repo.id).map((file) => [file.path, file.id] as const)
+      );
+      const currentSchema = sqlFiles.length > 0
+        ? buildCurrentSqlSchema(
+          sqlFiles.map((file) => ({
+            path: file.relativePath,
+            absolutePath: file.absolutePath,
+          }))
+        )
+        : [];
+      this.dbSchemaRepo.replaceCurrentSchema(repo.id, currentSchema, fileIdsByPath);
+    }
 
     // 7. Cross-file reference resolution
     const resolution = this.referenceRepo.resolveTargets(repo.id);

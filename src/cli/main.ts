@@ -9,6 +9,7 @@ import { createResetCommand } from './reset.js';
 import { createServeCommand } from './serve.js';
 import { createStatusCommand } from './status.js';
 import { createTableCommand } from './table.js';
+import { createSchemaImportCommand } from './schema-import.js';
 
 const program = new Command();
 
@@ -25,6 +26,7 @@ program.addCommand(createGenerateCommand());
 program.addCommand(createResetCommand());
 program.addCommand(createStatusCommand());
 program.addCommand(createTableCommand());
+program.addCommand(createSchemaImportCommand());
 program.addCommand(createServeCommand());
 
 program.parse();

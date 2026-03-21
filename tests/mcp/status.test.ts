@@ -242,4 +242,48 @@ describe('cartograph_status', () => {
       db.close();
     }
   });
+
+  it('indicates when current schema came from a live import', () => {
+    const db = openDatabase({ path: ':memory:' });
+
+    try {
+      runMigrations(db);
+
+      const repoRepo = new RepoRepository(db);
+      const schemaRepo = new DbSchemaRepository(db);
+
+      const repo = repoRepo.findOrCreate('/test/live-schema', 'live-schema');
+      repoRepo.updateLastIndexed(repo.id);
+
+      schemaRepo.replaceCurrentSchemaFromImport(repo.id, [
+        {
+          name: 'quotes',
+          normalizedName: 'quotes',
+          sourcePath: null,
+          lineStart: null,
+          lineEnd: null,
+          columns: [
+            {
+              name: 'id',
+              normalizedName: 'id',
+              dataType: 'integer',
+              isNullable: false,
+              defaultValue: null,
+              ordinalPosition: 1,
+              sourcePath: null,
+              lineNumber: null,
+            },
+          ],
+          foreignKeys: [],
+        },
+      ]);
+
+      const result = handleStatus({ db, repoId: repo.id });
+
+      expect(result).toContain('DB schema: 1 current tables, 1 columns, 0 foreign keys (from 0 SQL files, 0 raw definitions)');
+      expect(result).toContain('DB schema source: live database import');
+    } finally {
+      db.close();
+    }
+  });
 });

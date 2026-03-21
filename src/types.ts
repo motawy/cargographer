@@ -119,6 +119,7 @@ export interface CartographConfig {
   languages: string[];
   exclude: string[];
   additionalSources: AdditionalSourceConfig[];
+  schemaSource?: SchemaSourceConfig;
   database: DatabaseConfig;
 }
 
@@ -130,3 +131,20 @@ export interface AdditionalSourceConfig {
 export interface DatabaseConfig {
   path: string;
 }
+
+export interface MigrationSchemaSourceConfig {
+  type: 'migrations';
+}
+
+export interface PostgresSchemaSourceConfig {
+  type: 'postgres';
+  host?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  database?: string;
+}
+
+export type SchemaSourceConfig =
+  | MigrationSchemaSourceConfig
+  | PostgresSchemaSourceConfig;

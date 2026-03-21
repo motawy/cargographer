@@ -141,6 +141,9 @@ export function handleStatus(deps: StatusDeps): string {
       `${currentSchemaCounts.foreignKeys} foreign keys ` +
       `(from ${rawSchemaCounts.files} SQL files, ${rawSchemaCounts.tables} raw definitions)`
     );
+    if (currentSchemaCounts.tables > 0 && currentSchemaCounts.files === 0) {
+      lines.push('- DB schema source: live database import');
+    }
   }
 
   if (refCounts.total > 0) {

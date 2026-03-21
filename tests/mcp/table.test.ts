@@ -122,7 +122,7 @@ describe('cartograph_table', () => {
     const result = handleTable(deps, { name: 'users' });
 
     expect(result).toContain('## users');
-    expect(result).toContain('Current schema state derived from ordered SQL migrations.');
+    expect(result).toContain("Current schema state from Cartograph's canonical schema layer.");
     expect(result).toContain('Last table-level change: db/migrations/002_add_account_fk.sql:1-2');
     expect(result).toContain('### Columns (2, current state)');
     expect(result).toContain('- id INTEGER NOT NULL');

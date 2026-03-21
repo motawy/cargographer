@@ -361,4 +361,40 @@ CREATE TABLE orders (
       rmSync(repoDir, { recursive: true, force: true });
     }
   });
+
+  it('skips migration-based current schema rebuild when postgres schema source is configured', () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'cartograph-pg-schema-source-'));
+
+    try {
+      mkdirSync(join(repoDir, 'db'), { recursive: true });
+      writeFileSync(
+        join(repoDir, 'db', 'schema.sql'),
+        `CREATE TABLE quotes (
+  id INT NOT NULL
+);
+`
+      );
+
+      const pipeline = new IndexPipeline(db);
+      pipeline.run(repoDir, {
+        languages: ['sql'],
+        exclude: [],
+        additionalSources: [],
+        schemaSource: { type: 'postgres' },
+        database: { path: ':memory:' },
+      });
+
+      const rawDefinitions = db.prepare(
+        'SELECT COUNT(*) AS count FROM db_tables'
+      ).get() as { count: number };
+      expect(rawDefinitions.count).toBe(1);
+
+      const currentTables = db.prepare(
+        'SELECT COUNT(*) AS count FROM db_current_tables'
+      ).get() as { count: number };
+      expect(currentTables.count).toBe(0);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
 });
