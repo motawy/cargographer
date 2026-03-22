@@ -315,4 +315,191 @@ describe('cartograph_table_usage', () => {
       db.close();
     }
   });
+
+  it('filters noisy substring matches for common table names', () => {
+    const db = openDatabase({ path: ':memory:' });
+    const tmpDir = '/tmp/cartograph-table-usage-noise-test';
+
+    try {
+      mkdirSync(`${tmpDir}/src/Builder`, { recursive: true });
+      mkdirSync(`${tmpDir}/src/Model`, { recursive: true });
+      mkdirSync(`${tmpDir}/src/Misc`, { recursive: true });
+
+      writeFileSync(`${tmpDir}/src/Builder/QuotesBuilder.php`, [
+        '<?php',
+        'namespace App\\Builder;',
+        'class QuotesBuilder {',
+        '    public function load(): string',
+        '    {',
+        '        return "SELECT * FROM quotes q";',
+        '    }',
+        '}',
+      ].join('\n'));
+
+      writeFileSync(`${tmpDir}/src/Model/QuotesModel.php`, [
+        '<?php',
+        'namespace App\\Model;',
+        'class QuotesModel {',
+        '    public function getDBTable(): string',
+        '    {',
+        "        return 'quotes';",
+        '    }',
+        '}',
+      ].join('\n'));
+
+      writeFileSync(`${tmpDir}/src/Misc/Noise.php`, [
+        '<?php',
+        'namespace App\\Misc;',
+        'class Noise {',
+        '    public function describe(): void',
+        '    {',
+        '        ENT_QUOTES;',
+        '        $JobsQuotes = [];',
+        '        $quoteSigned = true;',
+        "        $folder = 'quotesignatures';",
+        "        $other = 'quote_quotes';",
+        '        $label = "strings escaped and wrapped in quotes";',
+        "        $permission = 'CreateQuotes';",
+        '    }',
+        '}',
+      ].join('\n'));
+
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const refRepo = new ReferenceRepository(db);
+      const schemaRepo = new DbSchemaRepository(db);
+      const symbolSchemaRepo = new SymbolSchemaRepository(db);
+
+      const repo = repoRepo.findOrCreate(tmpDir, 'common-name-noise');
+      const builderFile = fileRepo.upsert(repo.id, 'src/Builder/QuotesBuilder.php', 'php', 'n1', 8);
+      const modelFile = fileRepo.upsert(repo.id, 'src/Model/QuotesModel.php', 'php', 'n2', 8);
+      const noiseFile = fileRepo.upsert(repo.id, 'src/Misc/Noise.php', 'php', 'n3', 14);
+
+      const builder: ParsedSymbol = {
+        name: 'QuotesBuilder',
+        qualifiedName: 'App\\Builder\\QuotesBuilder',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'load',
+            qualifiedName: 'App\\Builder\\QuotesBuilder::load',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 4,
+            lineEnd: 7,
+            signature: 'load(): string',
+            returnType: 'string',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+
+      const model: ParsedSymbol = {
+        name: 'QuotesModel',
+        qualifiedName: 'App\\Model\\QuotesModel',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'getDBTable',
+            qualifiedName: 'App\\Model\\QuotesModel::getDBTable',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 4,
+            lineEnd: 7,
+            signature: 'getDBTable(): string',
+            returnType: 'string',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+
+      const noise: ParsedSymbol = {
+        name: 'Noise',
+        qualifiedName: 'App\\Misc\\Noise',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 14,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'describe',
+            qualifiedName: 'App\\Misc\\Noise::describe',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 4,
+            lineEnd: 13,
+            signature: 'describe(): void',
+            returnType: 'void',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+
+      symbolRepo.replaceFileSymbols(builderFile.id, [builder]);
+      symbolRepo.replaceFileSymbols(modelFile.id, [model]);
+      symbolRepo.replaceFileSymbols(noiseFile.id, [noise]);
+
+      schemaRepo.replaceCurrentSchemaFromImport(repo.id, [
+        {
+          name: 'quotes',
+          normalizedName: 'quotes',
+          sourcePath: null,
+          lineStart: null,
+          lineEnd: null,
+          columns: [],
+          foreignKeys: [],
+        },
+      ]);
+
+      const result = handleTableUsage({
+        repoId: repo.id,
+        repoPath: tmpDir,
+        fileRepo,
+        symbolRepo,
+        schemaRepo,
+        symbolSchemaRepo,
+        refRepo,
+      }, {
+        name: 'quotes',
+        limit: 10,
+      });
+
+      expect(result).toContain('App\\Builder\\QuotesBuilder::load');
+      expect(result).toContain('App\\Model\\QuotesModel::getDBTable');
+      expect(result).not.toContain('App\\Misc\\Noise::describe');
+      expect(result).not.toContain('ENT_QUOTES');
+      expect(result).not.toContain('quote_quotes');
+      expect(result).not.toContain('CreateQuotes');
+      expect(result).not.toContain('wrapped in quotes');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+      db.close();
+    }
+  });
 });

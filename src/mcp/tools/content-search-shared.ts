@@ -18,6 +18,7 @@ interface FindContentMatchesParams {
   limit?: number;
   includeTests?: boolean;
   includeSql?: boolean;
+  lineMatcher?: (line: string) => boolean;
 }
 
 type ContentSearchDeps = Pick<ToolDeps, 'repoId' | 'repoPath' | 'fileRepo' | 'symbolRepo'>;
@@ -62,7 +63,10 @@ export function findContentMatches(
     const lines = content.split('\n');
     for (let idx = 0; idx < lines.length; idx++) {
       const line = lines[idx]!;
-      if (!line.toLowerCase().includes(queryLower)) continue;
+      const matchesLine = params.lineMatcher
+        ? params.lineMatcher(line)
+        : line.toLowerCase().includes(queryLower);
+      if (!matchesLine) continue;
 
       const lineNumber = idx + 1;
       const symbol = symbolRepo.findInnermostByFileAndLine(repoId, file.path, lineNumber);

@@ -184,14 +184,16 @@ function findDirectTableMentions(
     },
     {
       query: tableName,
-      limit: Math.min(limit * 10, 500),
+      limit: Math.min(limit * 20, 1000),
       includeTests: true,
+      lineMatcher: (line) => isDirectTableReferenceCandidate(line, tableName),
     }
   );
 
   const deduped = new Map<string, ContentMatch>();
 
   for (const match of rawMatches) {
+    if (!isLikelyDirectTableReference(match, tableName)) continue;
     if (entityFilePaths.has(match.filePath) && !match.symbolName) continue;
     if (match.symbolName && isMappedEntitySymbol(match.symbolName, entityQualifiedNames)) continue;
 
@@ -218,6 +220,77 @@ function isMappedEntitySymbol(symbolName: string, entityQualifiedNames: Set<stri
     }
   }
   return false;
+}
+
+function isDirectTableReferenceCandidate(line: string, tableName: string): boolean {
+  const trimmed = line.trim();
+  if (isCommentOnlyLine(trimmed)) return false;
+  return buildExactTableTokenPattern(tableName).test(line);
+}
+
+function isLikelyDirectTableReference(match: ContentMatch, tableName: string): boolean {
+  const line = match.preview;
+  if (!buildExactTableTokenPattern(tableName).test(line)) return false;
+
+  if (buildSqlClausePattern(tableName).test(line)) return true;
+  if (buildQueryBuilderCallPattern(tableName).test(line)) return true;
+  if (buildTableAssignmentPattern(tableName).test(line)) return true;
+  if (match.isTest && buildQuotedLiteralPattern(tableName).test(line)) return true;
+
+  return buildQuotedReturnPattern(tableName).test(line) && hasTableSymbolContext(match.symbolName);
+}
+
+function buildExactTableTokenPattern(tableName: string): RegExp {
+  const escaped = escapeRegExp(tableName);
+  return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'i');
+}
+
+function buildSqlClausePattern(tableName: string): RegExp {
+  const escaped = escapeRegExp(tableName);
+  return new RegExp(
+    `\\b(?:from|join|update|into|table|using)\\s+(?:if\\s+(?:not\\s+)?exists\\s+)?(?:["'\`])?(?:[A-Za-z0-9_]+\\.)?${escaped}(?:["'\`])?(?=$|[\\s,;\\)\\]])`,
+    'i'
+  );
+}
+
+function buildQueryBuilderCallPattern(tableName: string): RegExp {
+  const escaped = escapeRegExp(tableName);
+  return new RegExp(
+    `(?:->|::|\\b)(?:from|join|leftjoin|rightjoin|innerjoin|crossjoin|table)\\s*\\(\\s*(["'\`])${escaped}\\1`,
+    'i'
+  );
+}
+
+function buildQuotedLiteralPattern(tableName: string): RegExp {
+  const escaped = escapeRegExp(tableName);
+  return new RegExp(`(["'\`])${escaped}\\1`, 'i');
+}
+
+function buildTableAssignmentPattern(tableName: string): RegExp {
+  const escaped = escapeRegExp(tableName);
+  return new RegExp(
+    `(?:["'\`]?\\b(?:table|table_name|tablename|dbtable|source_table|sourcetable)\\b["'\`]?|\\$[A-Za-z_][A-Za-z0-9_]*table[A-Za-z0-9_]*)\\s*(?:=>|:|=)\\s*(["'\`])${escaped}\\1`,
+    'i'
+  );
+}
+
+function buildQuotedReturnPattern(tableName: string): RegExp {
+  const escaped = escapeRegExp(tableName);
+  return new RegExp(`\\breturn\\b\\s*(?:\\(?\\s*)?(["'\`])${escaped}\\1`, 'i');
+}
+
+function hasTableSymbolContext(symbolName: string | null): boolean {
+  if (!symbolName) return false;
+  const leaf = symbolName.split('::').pop()?.toLowerCase() ?? '';
+  return leaf.includes('table');
+}
+
+function isCommentOnlyLine(line: string): boolean {
+  return /^(?:\/\/|#|\/\*|\*)/.test(line);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function renderDependentRows(lines: string[], rows: DependentUsageRow[], includeTests: boolean, limit: number): void {
