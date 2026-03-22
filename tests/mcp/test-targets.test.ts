@@ -73,6 +73,140 @@ describe('cartograph_test_targets', () => {
     }
   });
 
+  it('prefers direct test references over generic same-feature tests for symbol and file mode', () => {
+    const db = openDatabase({ path: ':memory:' });
+
+    try {
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const refRepo = new ReferenceRepository(db);
+
+      const repo = repoRepo.findOrCreate('/test/repo-target-priority', 'targets-priority');
+      const routeFile = fileRepo.upsert(repo.id, 'src/RestApi/Route/JobNotesInterface.php', 'php', 'tt5', 20);
+      const builderFile = fileRepo.upsert(repo.id, 'src/RestApi/Builder/JobNotesBuilder.php', 'php', 'tt6', 20);
+      const routeTestFile = fileRepo.upsert(repo.id, 'tests/RestApi/Route/JobNotesInterfaceTest.php', 'php', 'tt7', 20);
+      const builderTestFile = fileRepo.upsert(repo.id, 'tests/RestApi/Builder/JobNotesBuilderTest.php', 'php', 'tt8', 20);
+
+      const routeSymbol: ParsedSymbol = {
+        name: 'JobNotesInterface',
+        qualifiedName: 'App\\RestApi\\Route\\JobNotesInterface',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 20,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [],
+      };
+      const builderSymbol: ParsedSymbol = {
+        name: 'JobNotesBuilder',
+        qualifiedName: 'App\\RestApi\\Builder\\JobNotesBuilder',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 20,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [],
+      };
+      const routeTestSymbol: ParsedSymbol = {
+        name: 'JobNotesInterfaceTest',
+        qualifiedName: 'Tests\\RestApi\\Route\\JobNotesInterfaceTest',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 20,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [],
+      };
+      const builderTestSymbol: ParsedSymbol = {
+        name: 'JobNotesBuilderTest',
+        qualifiedName: 'Tests\\RestApi\\Builder\\JobNotesBuilderTest',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 20,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [],
+      };
+
+      const routeMap = symbolRepo.replaceFileSymbols(routeFile.id, [routeSymbol]);
+      const builderMap = symbolRepo.replaceFileSymbols(builderFile.id, [builderSymbol]);
+      const routeTestMap = symbolRepo.replaceFileSymbols(routeTestFile.id, [routeTestSymbol]);
+      const builderTestMap = symbolRepo.replaceFileSymbols(builderTestFile.id, [builderTestSymbol]);
+
+      refRepo.replaceFileReferences(routeTestFile.id, routeTestMap, [
+        {
+          sourceQualifiedName: 'Tests\\RestApi\\Route\\JobNotesInterfaceTest',
+          targetQualifiedName: 'App\\RestApi\\Route\\JobNotesInterface',
+          kind: 'use',
+          line: 3,
+        },
+      ]);
+      refRepo.replaceFileReferences(builderTestFile.id, builderTestMap, [
+        {
+          sourceQualifiedName: 'Tests\\RestApi\\Builder\\JobNotesBuilderTest',
+          targetQualifiedName: 'App\\RestApi\\Builder\\JobNotesBuilder',
+          kind: 'use',
+          line: 3,
+        },
+      ]);
+      refRepo.resolveTargets(repo.id);
+
+      const bySymbol = handleTestTargets({
+        repoId: repo.id,
+        fileRepo,
+        symbolRepo,
+        refRepo,
+      }, {
+        symbol: 'App\\RestApi\\Route\\JobNotesInterface',
+        limit: 5,
+      });
+
+      expect(bySymbol).toContain('tests/RestApi/Route/JobNotesInterfaceTest.php');
+      const routeSymbolIndex = bySymbol.indexOf('tests/RestApi/Route/JobNotesInterfaceTest.php');
+      const builderSymbolIndex = bySymbol.indexOf('tests/RestApi/Builder/JobNotesBuilderTest.php');
+      if (builderSymbolIndex !== -1) {
+        expect(routeSymbolIndex).toBeLessThan(builderSymbolIndex);
+      }
+
+      const byFile = handleTestTargets({
+        repoId: repo.id,
+        fileRepo,
+        symbolRepo,
+        refRepo,
+      }, {
+        file: 'src/RestApi/Route/JobNotesInterface.php',
+        limit: 5,
+      });
+
+      expect(byFile).toContain('tests/RestApi/Route/JobNotesInterfaceTest.php');
+      const routeFileIndex = byFile.indexOf('tests/RestApi/Route/JobNotesInterfaceTest.php');
+      const builderFileIndex = byFile.indexOf('tests/RestApi/Builder/JobNotesBuilderTest.php');
+      if (builderFileIndex !== -1) {
+        expect(routeFileIndex).toBeLessThan(builderFileIndex);
+      }
+
+      // Keep the symbol maps live so the test covers both direct references.
+      expect(routeMap.size).toBe(1);
+      expect(builderMap.size).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
   it('suggests tests that directly mention a table name', () => {
     const db = openDatabase({ path: ':memory:' });
     const tmpDir = '/tmp/cartograph-test-targets-table-test';

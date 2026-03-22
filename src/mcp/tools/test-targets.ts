@@ -32,7 +32,74 @@ interface CandidateScore {
   reasons: string[];
 }
 
+interface DirectTestHint {
+  score: number;
+  reasons: string[];
+}
+
+type DirectTestHints = Map<string, DirectTestHint>;
+
 const MIN_TEST_TARGET_SCORE = 8;
+const GENERIC_NAME_TOKENS = new Set([
+  'test',
+  'tests',
+  'spec',
+  'specs',
+  'src',
+  'app',
+  'php',
+  'interface',
+  'controller',
+  'route',
+  'builder',
+  'model',
+  'entity',
+  'repository',
+  'service',
+  'handler',
+  'page',
+  'report',
+  'factory',
+  'manager',
+  'provider',
+  'resource',
+  'module',
+  'restapi',
+  'rest',
+  'api',
+  'application',
+  'integration',
+  'feature',
+  'unit',
+  'simpro',
+  'data',
+  'object',
+  'dataobject',
+]);
+const STRUCTURAL_SUFFIXES = [
+  'Interface',
+  'Controller',
+  'Route',
+  'Builder',
+  'Model',
+  'Entity',
+  'Repository',
+  'Service',
+  'Handler',
+  'Page',
+  'Report',
+  'Factory',
+  'Manager',
+  'Provider',
+  'Resource',
+  'Resolver',
+  'Action',
+  'Module',
+  'APIEntity',
+  'ApiEntity',
+  'DataObject',
+];
+const TEST_SUFFIX_RE = /(?:IntegrationTest|FeatureTest|UnitTest|ApiTest|UITest|TestCase|Tests|Test|Specs|Spec|IT)$/i;
 
 export function handleTestTargets(deps: TestTargetsDeps, params: TestTargetsParams): string {
   const selectorCount = [params.symbol, params.file, params.table].filter(Boolean).length;
@@ -52,18 +119,20 @@ export function handleTestTargets(deps: TestTargetsDeps, params: TestTargetsPara
 
   let selectorLabel = '';
   let seedFiles: SeedFile[] = [];
-  let directTestHints = new Map<string, string[]>();
+  let directTestHints: DirectTestHints = new Map();
 
   if (params.symbol) {
     selectorLabel = `symbol ${params.symbol}`;
     const result = collectSymbolSeeds(deps, params.symbol);
     if (typeof result === 'string') return result;
-    seedFiles = result;
+    seedFiles = result.seedFiles;
+    directTestHints = result.directTestHints;
   } else if (params.file) {
     selectorLabel = `file ${params.file}`;
     const result = collectFileSeeds(deps, allFiles, params.file);
     if (typeof result === 'string') return result;
-    seedFiles = result;
+    seedFiles = result.seedFiles;
+    directTestHints = result.directTestHints;
   } else if (params.table) {
     selectorLabel = `table ${params.table}`;
     const result = collectTableSeeds(deps, params.table);
@@ -96,7 +165,10 @@ export function handleTestTargets(deps: TestTargetsDeps, params: TestTargetsPara
   return lines.join('\n');
 }
 
-function collectSymbolSeeds(deps: TestTargetsDeps, symbolName: string): SeedFile[] | string {
+function collectSymbolSeeds(
+  deps: TestTargetsDeps,
+  symbolName: string
+): { seedFiles: SeedFile[]; directTestHints: DirectTestHints } | string {
   const symbol = resolveSymbol(deps.repoId, symbolName, deps.symbolRepo);
   if (!symbol) {
     return `Symbol not found: "${symbolName}". Use cartograph_find to search.`;
@@ -104,6 +176,7 @@ function collectSymbolSeeds(deps: TestTargetsDeps, symbolName: string): SeedFile
 
   const filePath = deps.symbolRepo.getFilePath(symbol.fileId);
   const seeds: SeedFile[] = [];
+  const directTestHints: DirectTestHints = new Map();
   if (filePath) {
     seeds.push({
       path: filePath,
@@ -115,7 +188,18 @@ function collectSymbolSeeds(deps: TestTargetsDeps, symbolName: string): SeedFile
 
   const dependents = deps.refRepo.findDependents(symbol.id, 2) as unknown as DependentRow[];
   for (const row of dependents) {
-    if (!row.source_file_path || isTestPath(row.source_file_path)) continue;
+    if (!row.source_file_path) continue;
+    if (isTestPath(row.source_file_path)) {
+      if ((row.depth ?? 1) <= 1) {
+        mergeDirectHint(
+          directTestHints,
+          row.source_file_path,
+          28,
+          `directly references ${symbol.qualifiedName ?? symbol.name}`
+        );
+      }
+      continue;
+    }
     const depth = row.depth ?? 1;
     seeds.push({
       path: row.source_file_path,
@@ -125,14 +209,24 @@ function collectSymbolSeeds(deps: TestTargetsDeps, symbolName: string): SeedFile
     });
   }
 
-  return dedupeSeedFiles(seeds);
+  if (deps.repoPath) {
+    mergeDirectHintMaps(
+      directTestHints,
+      collectContentMentionHints(deps, symbol.name, symbol.qualifiedName)
+    );
+  }
+
+  return {
+    seedFiles: dedupeSeedFiles(seeds),
+    directTestHints,
+  };
 }
 
 function collectFileSeeds(
   deps: TestTargetsDeps,
   files: FileRecord[],
   filePath: string
-): SeedFile[] | string {
+): { seedFiles: SeedFile[]; directTestHints: DirectTestHints } | string {
   const exact = files.find((file) => file.path === filePath);
   if (!exact) {
     const suggestions = files
@@ -152,9 +246,35 @@ function collectFileSeeds(
     reason: 'selected file',
     symbolName: basenameWithoutExtension(exact.path),
   }];
+  const directTestHints: DirectTestHints = new Map();
 
-  const symbols = deps.symbolRepo.findByFilePath(deps.repoId, exact.path);
-  for (const symbol of symbols.filter((entry) => entry.parentSymbolId === null && entry.qualifiedName)) {
+  const symbols = deps.symbolRepo
+    .findByFilePath(deps.repoId, exact.path)
+    .filter((entry) => entry.parentSymbolId === null && entry.qualifiedName);
+
+  for (const symbol of symbols) {
+    const directDependents = deps.refRepo.findDependents(symbol.id, 1) as unknown as DependentRow[];
+    for (const row of directDependents) {
+      if (!row.source_file_path || !isTestPath(row.source_file_path)) continue;
+      mergeDirectHint(
+        directTestHints,
+        row.source_file_path,
+        26,
+        `directly references ${symbol.qualifiedName ?? symbol.name}`
+      );
+    }
+  }
+
+  if (deps.repoPath) {
+    for (const symbol of symbols) {
+      mergeDirectHintMaps(
+        directTestHints,
+        collectContentMentionHints(deps, symbol.name, symbol.qualifiedName)
+      );
+    }
+  }
+
+  for (const symbol of symbols) {
     const dependents = deps.refRepo.findDependents(symbol.id, 1) as unknown as DependentRow[];
     for (const row of dependents) {
       if (!row.source_file_path || isTestPath(row.source_file_path)) continue;
@@ -167,13 +287,16 @@ function collectFileSeeds(
     }
   }
 
-  return dedupeSeedFiles(seeds);
+  return {
+    seedFiles: dedupeSeedFiles(seeds),
+    directTestHints,
+  };
 }
 
 function collectTableSeeds(
   deps: TestTargetsDeps,
   tableName: string
-): { seedFiles: SeedFile[]; directTestHints: Map<string, string[]> } | string {
+): { seedFiles: SeedFile[]; directTestHints: DirectTestHints } | string {
   if (!deps.schemaRepo || !deps.symbolSchemaRepo) {
     throw new Error('Schema repositories are not available.');
   }
@@ -218,7 +341,7 @@ function collectTableSeeds(
     }
   }
 
-  const directTestHints = new Map<string, string[]>();
+  const directTestHints: DirectTestHints = new Map();
   if (deps.repoPath) {
     const testMatches = findContentMatches(
       {
@@ -236,9 +359,12 @@ function collectTableSeeds(
     ).filter((match) => match.isTest);
 
     for (const match of testMatches) {
-      const reasons = directTestHints.get(match.filePath) ?? [];
-      reasons.push(`mentions table ${table.name}`);
-      directTestHints.set(match.filePath, reasons);
+      mergeDirectHint(
+        directTestHints,
+        match.filePath,
+        18,
+        `mentions table ${table.name}`
+      );
     }
   }
 
@@ -251,7 +377,7 @@ function collectTableSeeds(
 function rankTestFiles(
   testFiles: FileRecord[],
   seedFiles: SeedFile[],
-  directTestHints: Map<string, string[]>
+  directTestHints: DirectTestHints
 ): CandidateScore[] {
   const ranked: CandidateScore[] = [];
 
@@ -261,10 +387,10 @@ function rankTestFiles(
     const testBase = normalizeTestBaseName(testFile.path);
     const testTokens = tokenizePath(testFile.path);
 
-    const directHints = directTestHints.get(testFile.path) ?? [];
-    if (directHints.length > 0) {
-      score += 10;
-      reasons.push(...directHints.slice(0, 2));
+    const directHints = directTestHints.get(testFile.path);
+    if (directHints) {
+      score += directHints.score;
+      reasons.push(...directHints.reasons.slice(0, 2));
     }
 
     for (const seed of seedFiles) {
@@ -278,7 +404,7 @@ function rankTestFiles(
 
       const overlap = countOverlap(testTokens, seedTokens);
       if (overlap > 0) {
-        score += overlap * 2 + Math.min(seed.weight, 4);
+        score += overlap * 2 + Math.min(seed.weight, 2);
         reasons.push(`shares ${overlap} name token${overlap === 1 ? '' : 's'} with ${seed.path}`);
       }
 
@@ -316,14 +442,18 @@ function basenameWithoutExtension(filePath: string): string {
 }
 
 function normalizeProdBaseName(filePath: string): string {
-  return normalizeNameStem(basenameWithoutExtension(filePath));
+  return normalizeComparableStem(basenameWithoutExtension(filePath));
 }
 
 function normalizeTestBaseName(filePath: string): string {
-  return normalizeNameStem(
-    basenameWithoutExtension(filePath)
-      .replace(/(?:Test|Tests|Spec|Specs|IntegrationTest|IT)$/i, '')
-  );
+  return normalizeComparableStem(stripTestSuffix(basenameWithoutExtension(filePath)));
+}
+
+function normalizeComparableStem(value: string): string {
+  const stripped = stripStructuralSuffixes(value);
+  const normalized = normalizeNameStem(stripped);
+  if (normalized !== '') return normalized;
+  return normalizeNameStem(value);
 }
 
 function normalizeNameStem(value: string): string {
@@ -353,7 +483,7 @@ function tokenizeValue(value: string): Set<string> {
     normalized
       .split(/[^a-z0-9]+/)
       .map((part) => part.trim())
-      .filter((part) => part.length >= 3 && !['test', 'tests', 'spec', 'src', 'app'].includes(part))
+      .filter((part) => part.length >= 3 && !GENERIC_NAME_TOKENS.has(part))
   );
 }
 
@@ -370,14 +500,134 @@ function sharedAreaScore(testPath: string, prodPath: string): number {
   const prodDirs = dirname(prodPath).toLowerCase().split(/[\\/]/).filter(Boolean);
   const prodTail = prodDirs.slice(-2);
   const overlap = prodTail.filter((segment) => testDirs.includes(segment)).length;
-  return overlap > 0 ? overlap * 2 : 0;
+  return overlap > 0 ? Math.min(overlap, 2) : 0;
 }
 
 function uniqueReasons(reasons: string[]): string[] {
   return [...new Set(reasons)];
 }
 
+function stripTestSuffix(value: string): string {
+  return value.replace(TEST_SUFFIX_RE, '');
+}
+
+function stripStructuralSuffixes(value: string): string {
+  let current = value;
+
+  while (current.length > 0) {
+    const next = STRUCTURAL_SUFFIXES.find((suffix) =>
+      current.length > suffix.length + 2 && current.toLowerCase().endsWith(suffix.toLowerCase())
+    );
+    if (!next) break;
+    current = current.slice(0, -next.length);
+  }
+
+  return current;
+}
+
+function mergeDirectHint(
+  hints: DirectTestHints,
+  filePath: string,
+  score: number,
+  reason: string
+): void {
+  const existing = hints.get(filePath);
+  if (!existing) {
+    hints.set(filePath, {
+      score,
+      reasons: [reason],
+    });
+    return;
+  }
+
+  if (existing.reasons.includes(reason)) {
+    return;
+  }
+
+  existing.score += score;
+  existing.reasons.push(reason);
+}
+
+function mergeDirectHintMaps(target: DirectTestHints, source: DirectTestHints): void {
+  for (const [filePath, hint] of source) {
+    const existing = target.get(filePath);
+    if (!existing) {
+      target.set(filePath, {
+        score: hint.score,
+        reasons: [...hint.reasons],
+      });
+      continue;
+    }
+
+    existing.score += hint.score;
+    for (const reason of hint.reasons) {
+      if (!existing.reasons.includes(reason)) {
+        existing.reasons.push(reason);
+      }
+    }
+  }
+}
+
+function collectContentMentionHints(
+  deps: TestTargetsDeps,
+  symbolName: string,
+  qualifiedName?: string | null
+): DirectTestHints {
+  const hints: DirectTestHints = new Map();
+  if (!deps.repoPath || !deps.fileRepo) {
+    return hints;
+  }
+
+  if (qualifiedName) {
+    const qualifiedNameLower = qualifiedName.toLowerCase();
+    const matches = findContentMatches(
+      {
+        repoId: deps.repoId,
+        repoPath: deps.repoPath,
+        fileRepo: deps.fileRepo,
+        symbolRepo: deps.symbolRepo,
+      },
+      {
+        query: qualifiedName,
+        includeTests: true,
+        limit: 200,
+        lineMatcher: (line) => line.toLowerCase().includes(qualifiedNameLower),
+      }
+    ).filter((match) => match.isTest);
+
+    for (const match of matches) {
+      mergeDirectHint(hints, match.filePath, 14, `mentions ${qualifiedName}`);
+    }
+  }
+
+  const symbolMatcher = exactTokenMatcher(symbolName);
+  const symbolMatches = findContentMatches(
+    {
+      repoId: deps.repoId,
+      repoPath: deps.repoPath,
+      fileRepo: deps.fileRepo,
+      symbolRepo: deps.symbolRepo,
+    },
+    {
+      query: symbolName,
+      includeTests: true,
+      limit: 200,
+      lineMatcher: (line) => symbolMatcher.test(line),
+    }
+  ).filter((match) => match.isTest);
+
+  for (const match of symbolMatches) {
+    mergeDirectHint(hints, match.filePath, 8, `mentions ${symbolName}`);
+  }
+
+  return hints;
+}
+
 function isLikelyTableMention(line: string, tableName: string): boolean {
-  const escaped = tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'i').test(line);
+  return exactTokenMatcher(tableName).test(line);
+}
+
+function exactTokenMatcher(value: string): RegExp {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'i');
 }
