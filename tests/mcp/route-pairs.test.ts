@@ -61,4 +61,51 @@ describe('cartograph_route_pairs', () => {
       db.close();
     }
   });
+
+  it('does not match nested routes to unrelated global leaf-name routes', () => {
+    const db = openDatabase({ path: ':memory:' });
+
+    try {
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const repo = repoRepo.findOrCreate('/test/route-pairs-catalogs', 'test-route-pairs-catalogs');
+
+      const files = [
+        ['src/Route/Root/Companies/CatalogInterface.php', 'App\\Route\\Root\\Companies\\CatalogInterface'],
+        ['src/Route/Root/Companies/CostCenterCatalogsInterface.php', 'App\\Route\\Root\\Companies\\CostCenterCatalogsInterface'],
+        ['src/Route/Root/Companies/Jobs/Sections/CostCenters/CatalogsInterface.php', 'App\\Route\\Root\\Companies\\Jobs\\Sections\\CostCenters\\CatalogsInterface'],
+      ] as const;
+
+      for (const [path, qualifiedName] of files) {
+        const file = fileRepo.upsert(repo.id, path, 'php', path, 10);
+        const symbol: ParsedSymbol = {
+          name: qualifiedName.split('\\').pop()!,
+          qualifiedName,
+          kind: 'class',
+          visibility: null,
+          lineStart: 1,
+          lineEnd: 10,
+          signature: null,
+          returnType: null,
+          docblock: null,
+          metadata: {},
+          children: [],
+        };
+        symbolRepo.replaceFileSymbols(file.id, [symbol]);
+      }
+
+      const result = handleRoutePairs(
+        { repoId: repo.id, symbolRepo },
+        { query: 'Catalog', path: 'Route/Root/Companies' }
+      );
+
+      expect(result).toContain('Jobs/Sections/CostCenters/Catalogs');
+      expect(result).toContain('App\\Route\\Root\\Companies\\CostCenterCatalogsInterface');
+      expect(result).not.toContain('App\\Route\\Root\\Companies\\CatalogInterface');
+    } finally {
+      db.close();
+    }
+  });
 });

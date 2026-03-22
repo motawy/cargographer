@@ -162,8 +162,11 @@ function stripRouteScaffolding(segments: string[]): string[] {
 
 function buildRouteAliases(resourceSegments: string[]): string[] {
   const aliases = new Set<string>();
+  const minSegments = resourceSegments.length > 1 ? 2 : 1;
   for (let start = 0; start < resourceSegments.length; start++) {
-    aliases.add(normalizeResourceSegments(resourceSegments.slice(start)));
+    const slice = resourceSegments.slice(start);
+    if (slice.length < minSegments) continue;
+    aliases.add(normalizeResourceSegments(slice));
   }
   return [...aliases];
 }
