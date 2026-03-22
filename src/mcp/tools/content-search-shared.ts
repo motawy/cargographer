@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { loadConfig } from '../../config.js';
 import { resolveIndexedFilePath } from '../../utils/indexed-path.js';
+import { isTestPath } from '../../utils/test-path.js';
 import type { ToolDeps } from '../types.js';
 
 export interface ContentMatch {
@@ -86,11 +87,4 @@ export function findContentMatches(
   }
 
   return matches;
-}
-
-export function isTestPath(path: string): boolean {
-  const normalized = path.toLowerCase();
-  return /(^|[\\/])(tests?|spec)([\\/]|$)/.test(normalized)
-    || /(^|[\\/]).*test\.php$/.test(normalized)
-    || /(^|[\\/]).*spec\.[a-z0-9]+$/.test(normalized);
 }

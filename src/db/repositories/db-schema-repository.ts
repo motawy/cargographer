@@ -283,6 +283,25 @@ export class DbSchemaRepository {
     return rows.map((row) => this.toTableRecord(row));
   }
 
+  listCurrentTables(repoId: number): DbTableRecord[] {
+    const rows = this.db.prepare(
+      `SELECT
+         t.id,
+         t.source_file_id AS file_id,
+         t.name,
+         t.normalized_name,
+         t.line_start,
+         t.line_end,
+         f.path AS file_path
+       FROM db_current_tables t
+       LEFT JOIN files f ON t.source_file_id = f.id
+       WHERE t.repo_id = ?
+       ORDER BY t.normalized_name`
+    ).all(repoId) as Record<string, unknown>[];
+
+    return rows.map((row) => this.toTableRecord(row));
+  }
+
   listCurrentTableSummaries(
     repoId: number,
     options: { query?: string; limit?: number } = {}

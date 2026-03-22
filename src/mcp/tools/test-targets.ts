@@ -3,8 +3,9 @@ import { normalizeSchemaName } from '../../db/repositories/db-schema-repository.
 import type { ToolDeps } from '../types.js';
 import type { FileRecord } from '../../db/repositories/file-repository.js';
 import type { DependentRow } from '../types.js';
-import { findContentMatches, isTestPath } from './content-search-shared.js';
+import { findContentMatches } from './content-search-shared.js';
 import { resolveSymbol } from './compare-shared.js';
+import { isTestPath } from '../../utils/test-path.js';
 
 interface TestTargetsParams {
   symbol?: string;

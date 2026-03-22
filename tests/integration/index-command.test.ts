@@ -2,7 +2,13 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { openDatabase } from '../../src/db/connection.js';
 import { runMigrations } from '../../src/db/migrate.js';
+import { DbSchemaRepository } from '../../src/db/repositories/db-schema-repository.js';
+import { ReferenceRepository } from '../../src/db/repositories/reference-repository.js';
+import { SymbolRepository } from '../../src/db/repositories/symbol-repository.js';
+import { SymbolSchemaRepository } from '../../src/db/repositories/symbol-schema-repository.js';
+import { TableReferenceRepository } from '../../src/db/repositories/table-reference-repository.js';
 import { IndexPipeline } from '../../src/indexer/pipeline.js';
+import { handleTableUsage } from '../../src/mcp/tools/table-usage.js';
 import { join } from 'path';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -235,6 +241,99 @@ class BaseThing
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
       rmSync(extraDir, { recursive: true, force: true });
+    }
+  });
+
+  it('indexes direct table references for table_usage without live file scanning', () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'cartograph-index-table-refs-'));
+
+    try {
+      mkdirSync(join(repoDir, 'src', 'Builder'), { recursive: true });
+      mkdirSync(join(repoDir, 'tests', 'Builder'), { recursive: true });
+      mkdirSync(join(repoDir, 'db'), { recursive: true });
+      writeFileSync(
+        join(repoDir, 'src', 'Builder', 'QuotesBuilder.php'),
+        `<?php
+namespace App\\Builder;
+
+class QuotesBuilder
+{
+    public function getDBTable(): string
+    {
+        return 'quotes';
+    }
+}
+`
+      );
+      writeFileSync(
+        join(repoDir, 'tests', 'Builder', 'QuotesBuilderTest.php'),
+        `<?php
+namespace Tests\\Builder;
+
+class QuotesBuilderTest
+{
+    public function testTableName(): void
+    {
+        self::assertSame('quotes', 'quotes');
+    }
+}
+`
+      );
+      writeFileSync(
+        join(repoDir, 'db', '001_create_quotes.sql'),
+        `CREATE TABLE quotes (
+  id INTEGER PRIMARY KEY
+);
+`
+      );
+
+      const pipeline = new IndexPipeline(db);
+      pipeline.run(repoDir, {
+        languages: ['php', 'sql'],
+        exclude: ['vendor/'],
+        additionalSources: [],
+        database: { path: ':memory:' },
+      });
+
+      const repo = db.prepare(
+        'SELECT id FROM repos WHERE path = ?'
+      ).get(repoDir) as { id: number };
+      const refCount = db.prepare(
+        'SELECT COUNT(*) AS count FROM direct_table_references'
+      ).get() as { count: number };
+      expect(refCount.count).toBeGreaterThanOrEqual(2);
+
+      const result = handleTableUsage({
+        repoId: repo.id,
+        symbolRepo: new SymbolRepository(db),
+        refRepo: new ReferenceRepository(db),
+        schemaRepo: new DbSchemaRepository(db),
+        symbolSchemaRepo: new SymbolSchemaRepository(db),
+        tableReferenceRepo: new TableReferenceRepository(db),
+      }, {
+        name: 'quotes',
+        limit: 10,
+      });
+
+      expect(result).toContain('App\\Builder\\QuotesBuilder::getDBTable');
+      expect(result).not.toContain('Tests\\Builder\\QuotesBuilderTest::testTableName');
+
+      const withTests = handleTableUsage({
+        repoId: repo.id,
+        symbolRepo: new SymbolRepository(db),
+        refRepo: new ReferenceRepository(db),
+        schemaRepo: new DbSchemaRepository(db),
+        symbolSchemaRepo: new SymbolSchemaRepository(db),
+        tableReferenceRepo: new TableReferenceRepository(db),
+      }, {
+        name: 'quotes',
+        limit: 10,
+        includeTests: true,
+      });
+
+      expect(withTests).toContain('Tests\\Builder\\QuotesBuilderTest::testTableName');
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
     }
   });
 

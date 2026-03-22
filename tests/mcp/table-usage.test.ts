@@ -8,6 +8,7 @@ import { SymbolRepository } from '../../src/db/repositories/symbol-repository.js
 import { ReferenceRepository } from '../../src/db/repositories/reference-repository.js';
 import { DbSchemaRepository } from '../../src/db/repositories/db-schema-repository.js';
 import { SymbolSchemaRepository } from '../../src/db/repositories/symbol-schema-repository.js';
+import { TableReferenceRepository } from '../../src/db/repositories/table-reference-repository.js';
 import { handleTableUsage } from '../../src/mcp/tools/table-usage.js';
 import type { ParsedSymbol } from '../../src/types.js';
 
@@ -507,6 +508,93 @@ describe('cartograph_table_usage', () => {
       expect(withTests).toContain('Tests\\Builder\\RecurringQuoteSectionsBuilderTest::testUsesTableName');
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
+      db.close();
+    }
+  });
+
+  it('uses indexed direct table references without reading the repo path', () => {
+    const db = openDatabase({ path: ':memory:' });
+
+    try {
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const refRepo = new ReferenceRepository(db);
+      const schemaRepo = new DbSchemaRepository(db);
+      const symbolSchemaRepo = new SymbolSchemaRepository(db);
+      const tableReferenceRepo = new TableReferenceRepository(db);
+
+      const repo = repoRepo.findOrCreate('/indexed/repo', 'indexed');
+      const builderFile = fileRepo.upsert(repo.id, 'src/Builder/QuotesBuilder.php', 'php', 'ib1', 8);
+
+      const builder: ParsedSymbol = {
+        name: 'QuotesBuilder',
+        qualifiedName: 'App\\Builder\\QuotesBuilder',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'getDBTable',
+            qualifiedName: 'App\\Builder\\QuotesBuilder::getDBTable',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 4,
+            lineEnd: 7,
+            signature: 'getDBTable(): string',
+            returnType: 'string',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+
+      const symbolMap = symbolRepo.replaceFileSymbols(builderFile.id, [builder]);
+      schemaRepo.replaceCurrentSchemaFromImport(repo.id, [
+        {
+          name: 'quotes',
+          normalizedName: 'quotes',
+          sourcePath: null,
+          lineStart: null,
+          lineEnd: null,
+          columns: [],
+          foreignKeys: [],
+        },
+      ]);
+      tableReferenceRepo.replaceRepoReferences(repo.id, [
+        {
+          sourceFileId: builderFile.id,
+          sourceSymbolId: symbolMap.get('App\\Builder\\QuotesBuilder::getDBTable') ?? null,
+          tableName: 'quotes',
+          normalizedTableName: 'quotes',
+          referenceKind: 'quoted_return',
+          lineNumber: 6,
+          preview: "return 'quotes';",
+        },
+      ]);
+
+      const result = handleTableUsage({
+        repoId: repo.id,
+        symbolRepo,
+        refRepo,
+        schemaRepo,
+        symbolSchemaRepo,
+        tableReferenceRepo,
+      }, {
+        name: 'quotes',
+        limit: 10,
+      });
+
+      expect(result).toContain('App\\Builder\\QuotesBuilder::getDBTable');
+      expect(result).toContain("return 'quotes';");
+    } finally {
       db.close();
     }
   });

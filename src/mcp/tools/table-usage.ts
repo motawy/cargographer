@@ -1,7 +1,10 @@
 import { normalizeSchemaName } from '../../db/repositories/db-schema-repository.js';
 import type { SymbolColumnLinkRecord, SymbolTableLinkRecord } from '../../db/repositories/symbol-schema-repository.js';
+import type { DirectTableReferenceRecord } from '../../db/repositories/table-reference-repository.js';
+import { scanDirectTableReferences } from '../../indexer/direct-table-reference-scanner.js';
+import { isTestPath } from '../../utils/test-path.js';
 import type { ToolDeps } from '../types.js';
-import { findContentMatches, isTestPath, type ContentMatch } from './content-search-shared.js';
+import type { ContentMatch } from './content-search-shared.js';
 
 interface TableUsageParams {
   name: string;
@@ -10,7 +13,7 @@ interface TableUsageParams {
   includeTests?: boolean;
 }
 
-type TableUsageDeps = Pick<ToolDeps, 'repoId' | 'repoPath' | 'schemaRepo' | 'symbolSchemaRepo' | 'refRepo' | 'fileRepo' | 'symbolRepo'>;
+type TableUsageDeps = Pick<ToolDeps, 'repoId' | 'repoPath' | 'schemaRepo' | 'symbolSchemaRepo' | 'refRepo' | 'fileRepo' | 'symbolRepo' | 'tableReferenceRepo'>;
 
 interface DependentUsageRow {
   source_symbol_id?: number;
@@ -199,29 +202,55 @@ function findDirectTableMentions(
   entityQualifiedNames: Set<string>,
   entityFilePaths: Set<string>
 ): ContentMatch[] {
+  const indexedMatches = deps.tableReferenceRepo?.findByTable(deps.repoId, tableName) ?? [];
+  if (indexedMatches.length > 0) {
+    return dedupeDirectReferenceMatches(
+      indexedMatches.map(toContentMatch),
+      limit,
+      includeTests,
+      entityQualifiedNames,
+      entityFilePaths
+    );
+  }
+
   if (!deps.repoPath || !deps.fileRepo || !deps.symbolRepo) {
     return [];
   }
 
-  const rawMatches = findContentMatches(
-    {
-      repoId: deps.repoId,
-      repoPath: deps.repoPath,
-      fileRepo: deps.fileRepo,
-      symbolRepo: deps.symbolRepo,
-    },
-    {
-      query: tableName,
-      limit: Math.min(limit * 20, 1000),
-      includeTests: true,
-      lineMatcher: (line) => isDirectTableReferenceCandidate(line, tableName),
-    }
-  );
+  const scannedMatches = scanDirectTableReferences({
+    repoId: deps.repoId,
+    repoPath: deps.repoPath,
+    fileRepo: deps.fileRepo,
+    symbolRepo: deps.symbolRepo,
+    tableNames: [tableName],
+  }).map((match) => ({
+    filePath: match.filePath,
+    lineNumber: match.lineNumber,
+    symbolName: match.symbolName,
+    symbolKind: match.symbolKind,
+    preview: match.preview,
+    isTest: match.isTest,
+  }));
 
+  return dedupeDirectReferenceMatches(
+    scannedMatches,
+    limit,
+    includeTests,
+    entityQualifiedNames,
+    entityFilePaths
+  );
+}
+
+function dedupeDirectReferenceMatches(
+  rawMatches: ContentMatch[],
+  limit: number,
+  includeTests: boolean,
+  entityQualifiedNames: Set<string>,
+  entityFilePaths: Set<string>
+): ContentMatch[] {
   const deduped = new Map<string, ContentMatch>();
 
   for (const match of rawMatches) {
-    if (!isLikelyDirectTableReference(match, tableName)) continue;
     if (entityFilePaths.has(match.filePath) && !match.symbolName) continue;
     if (match.symbolName && isMappedEntitySymbol(match.symbolName, entityQualifiedNames)) continue;
 
@@ -241,6 +270,17 @@ function findDirectTableMentions(
   });
 }
 
+function toContentMatch(match: DirectTableReferenceRecord): ContentMatch {
+  return {
+    filePath: match.filePath,
+    lineNumber: match.lineNumber,
+    symbolName: match.qualifiedName ?? match.symbolName,
+    symbolKind: match.symbolKind,
+    preview: match.preview,
+    isTest: isTestPath(match.filePath),
+  };
+}
+
 function isMappedEntitySymbol(symbolName: string, entityQualifiedNames: Set<string>): boolean {
   for (const entityName of entityQualifiedNames) {
     if (symbolName === entityName || symbolName.startsWith(`${entityName}::`) || symbolName.startsWith(`${entityName}::$`)) {
@@ -248,77 +288,6 @@ function isMappedEntitySymbol(symbolName: string, entityQualifiedNames: Set<stri
     }
   }
   return false;
-}
-
-function isDirectTableReferenceCandidate(line: string, tableName: string): boolean {
-  const trimmed = line.trim();
-  if (isCommentOnlyLine(trimmed)) return false;
-  return buildExactTableTokenPattern(tableName).test(line);
-}
-
-function isLikelyDirectTableReference(match: ContentMatch, tableName: string): boolean {
-  const line = match.preview;
-  if (!buildExactTableTokenPattern(tableName).test(line)) return false;
-
-  if (buildSqlClausePattern(tableName).test(line)) return true;
-  if (buildQueryBuilderCallPattern(tableName).test(line)) return true;
-  if (buildTableAssignmentPattern(tableName).test(line)) return true;
-  if (match.isTest && buildQuotedLiteralPattern(tableName).test(line)) return true;
-
-  return buildQuotedReturnPattern(tableName).test(line) && hasTableSymbolContext(match.symbolName);
-}
-
-function buildExactTableTokenPattern(tableName: string): RegExp {
-  const escaped = escapeRegExp(tableName);
-  return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'i');
-}
-
-function buildSqlClausePattern(tableName: string): RegExp {
-  const escaped = escapeRegExp(tableName);
-  return new RegExp(
-    `\\b(?:from|join|update|into|table|using)\\s+(?:if\\s+(?:not\\s+)?exists\\s+)?(?:["'\`])?(?:[A-Za-z0-9_]+\\.)?${escaped}(?:["'\`])?(?=$|[\\s,;\\)\\]])`,
-    'i'
-  );
-}
-
-function buildQueryBuilderCallPattern(tableName: string): RegExp {
-  const escaped = escapeRegExp(tableName);
-  return new RegExp(
-    `(?:->|::|\\b)(?:from|join|leftjoin|rightjoin|innerjoin|crossjoin|table)\\s*\\(\\s*(["'\`])${escaped}\\1`,
-    'i'
-  );
-}
-
-function buildQuotedLiteralPattern(tableName: string): RegExp {
-  const escaped = escapeRegExp(tableName);
-  return new RegExp(`(["'\`])${escaped}\\1`, 'i');
-}
-
-function buildTableAssignmentPattern(tableName: string): RegExp {
-  const escaped = escapeRegExp(tableName);
-  return new RegExp(
-    `(?:["'\`]?\\b(?:table|table_name|tablename|dbtable|source_table|sourcetable)\\b["'\`]?|\\$[A-Za-z_][A-Za-z0-9_]*table[A-Za-z0-9_]*)\\s*(?:=>|:|=)\\s*(["'\`])${escaped}\\1`,
-    'i'
-  );
-}
-
-function buildQuotedReturnPattern(tableName: string): RegExp {
-  const escaped = escapeRegExp(tableName);
-  return new RegExp(`\\breturn\\b\\s*(?:\\(?\\s*)?(["'\`])${escaped}\\1`, 'i');
-}
-
-function hasTableSymbolContext(symbolName: string | null): boolean {
-  if (!symbolName) return false;
-  const leaf = symbolName.split('::').pop()?.toLowerCase() ?? '';
-  return leaf.includes('table');
-}
-
-function isCommentOnlyLine(line: string): boolean {
-  return /^(?:\/\/|#|\/\*|\*)/.test(line);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function renderDependentRows(lines: string[], rows: DependentUsageRow[], includeTests: boolean, limit: number): void {

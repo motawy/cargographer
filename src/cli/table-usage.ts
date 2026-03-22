@@ -9,6 +9,7 @@ import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
 import { SymbolSchemaRepository } from '../db/repositories/symbol-schema-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
 import { SymbolRepository } from '../db/repositories/symbol-repository.js';
+import { TableReferenceRepository } from '../db/repositories/table-reference-repository.js';
 import { handleTableUsage } from '../mcp/tools/table-usage.js';
 
 export function renderTableUsageForRepo(
@@ -34,6 +35,7 @@ export function renderTableUsageForRepo(
     schemaRepo: new DbSchemaRepository(db),
     symbolSchemaRepo: new SymbolSchemaRepository(db),
     refRepo: new ReferenceRepository(db),
+    tableReferenceRepo: new TableReferenceRepository(db),
   }, { name: tableName, depth, limit, includeTests });
 }
 

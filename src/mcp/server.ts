@@ -6,6 +6,7 @@ import { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
 import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
 import { SymbolSchemaRepository } from '../db/repositories/symbol-schema-repository.js';
+import { TableReferenceRepository } from '../db/repositories/table-reference-repository.js';
 import type { ToolDeps, RepoStats } from './types.js';
 import { handleFind } from './tools/find.js';
 import { handleSymbol } from './tools/symbol.js';
@@ -35,6 +36,7 @@ export function createServer(opts: ServerOptions): McpServer {
   const schemaRepo = new DbSchemaRepository(opts.db);
   const fileRepo = new FileRepository(opts.db);
   const symbolSchemaRepo = new SymbolSchemaRepository(opts.db);
+  const tableReferenceRepo = new TableReferenceRepository(opts.db);
 
   const deps: ToolDeps = {
     repoId: opts.repoId,
@@ -44,6 +46,7 @@ export function createServer(opts: ServerOptions): McpServer {
     refRepo,
     schemaRepo,
     symbolSchemaRepo,
+    tableReferenceRepo,
   };
 
   const stats = computeRepoStats(opts.db, opts.repoId);

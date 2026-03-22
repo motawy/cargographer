@@ -7,8 +7,12 @@ import { openDatabase } from '../db/connection.js';
 import { runMigrations } from '../db/migrate.js';
 import { importPgSchema } from '../db/pg-schema-importer.js';
 import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
+import { FileRepository } from '../db/repositories/file-repository.js';
 import { RepoRepository } from '../db/repositories/repo-repository.js';
+import { SymbolRepository } from '../db/repositories/symbol-repository.js';
+import { TableReferenceRepository } from '../db/repositories/table-reference-repository.js';
 import type { CartographConfig, PostgresSchemaSourceConfig } from '../types.js';
+import { scanDirectTableReferences } from '../indexer/direct-table-reference-scanner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -40,6 +44,26 @@ export async function importSchemaForRepo(
   const imported = await importPgSchema(schemaSource);
   const schemaRepo = new DbSchemaRepository(db);
   schemaRepo.replaceCurrentSchemaFromImport(repo.id, imported);
+  const directTableReferences = scanDirectTableReferences({
+    repoId: repo.id,
+    repoPath: absoluteRepoPath,
+    fileRepo: new FileRepository(db),
+    symbolRepo: new SymbolRepository(db),
+    tableNames: imported.map((table) => table.name),
+    config,
+  });
+  new TableReferenceRepository(db).replaceRepoReferences(
+    repo.id,
+    directTableReferences.map((reference) => ({
+      sourceFileId: reference.sourceFileId,
+      sourceSymbolId: reference.sourceSymbolId,
+      tableName: reference.tableName,
+      normalizedTableName: reference.normalizedTableName,
+      referenceKind: reference.referenceKind,
+      lineNumber: reference.lineNumber,
+      preview: reference.preview,
+    }))
+  );
   repoRepo.updateLastIndexed(repo.id);
 
   return summarizeImportedSchema(imported);

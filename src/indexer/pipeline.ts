@@ -8,6 +8,7 @@ import { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
 import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
 import { SymbolSchemaRepository } from '../db/repositories/symbol-schema-repository.js';
+import { TableReferenceRepository } from '../db/repositories/table-reference-repository.js';
 import { extractReferences } from './reference-extractor.js';
 import { IndexError } from '../errors.js';
 import { basename, resolve } from 'path';
@@ -15,6 +16,7 @@ import { appendFileSync, readFileSync, writeFileSync } from 'fs';
 import { extractSqlSchema } from './sql-schema-extractor.js';
 import { buildCurrentSqlSchema } from './sql-schema-state.js';
 import { extractDoctrineMappings } from './doctrine-mapping-extractor.js';
+import { scanDirectTableReferences } from './direct-table-reference-scanner.js';
 
 export interface PipelineOptions {
   verbose?: boolean;
@@ -28,6 +30,7 @@ export class IndexPipeline {
   private referenceRepo: ReferenceRepository;
   private dbSchemaRepo: DbSchemaRepository;
   private symbolSchemaRepo: SymbolSchemaRepository;
+  private tableReferenceRepo: TableReferenceRepository;
 
   constructor(db: Database.Database) {
     this.repoRepo = new RepoRepository(db);
@@ -36,6 +39,7 @@ export class IndexPipeline {
     this.referenceRepo = new ReferenceRepository(db);
     this.dbSchemaRepo = new DbSchemaRepository(db);
     this.symbolSchemaRepo = new SymbolSchemaRepository(db);
+    this.tableReferenceRepo = new TableReferenceRepository(db);
   }
 
   run(
@@ -169,6 +173,29 @@ export class IndexPipeline {
         : [];
       this.dbSchemaRepo.replaceCurrentSchema(repo.id, currentSchema, fileIdsByPath);
     }
+
+    const currentTables = this.dbSchemaRepo.listCurrentTables(repo.id);
+    const directTableReferences = scanDirectTableReferences({
+      repoId: repo.id,
+      repoPath: absPath,
+      fileRepo: this.fileRepo,
+      symbolRepo: this.symbolRepo,
+      tableNames: currentTables.map((table) => table.name),
+      config,
+    });
+    this.tableReferenceRepo.replaceRepoReferences(
+      repo.id,
+      directTableReferences.map((reference) => ({
+        sourceFileId: reference.sourceFileId,
+        sourceSymbolId: reference.sourceSymbolId,
+        tableName: reference.tableName,
+        normalizedTableName: reference.normalizedTableName,
+        referenceKind: reference.referenceKind,
+        lineNumber: reference.lineNumber,
+        preview: reference.preview,
+      }))
+    );
+    log(`Direct table references: ${directTableReferences.length} indexed`);
 
     // 7. Cross-file reference resolution
     const resolution = this.referenceRepo.resolveTargets(repo.id);
