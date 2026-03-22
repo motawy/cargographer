@@ -21,6 +21,7 @@ import { createCompareManyCommand } from './compare-many.js';
 import { createScaffoldPlanCommand } from './scaffold-plan.js';
 import { createTestTargetsCommand } from './test-targets.js';
 import { createRoutePairsCommand } from './route-pairs.js';
+import { createSqlValidateCommand } from './sql-validate.js';
 
 const program = new Command();
 
@@ -49,6 +50,7 @@ program.addCommand(createCompareManyCommand());
 program.addCommand(createScaffoldPlanCommand());
 program.addCommand(createTestTargetsCommand());
 program.addCommand(createRoutePairsCommand());
+program.addCommand(createSqlValidateCommand());
 program.addCommand(createServeCommand());
 
 program.parse();

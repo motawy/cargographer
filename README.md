@@ -157,6 +157,21 @@ Useful options:
 - `--limit <n>` to control how many literal column refs are scanned
 - `--include-tests` to include test files in the scoped refs
 
+### `cartograph sql-validate --repo-path <path>`
+
+Validate literal SQL-ish table, column, and join refs inside a symbol or file against Cartograph's current indexed schema.
+
+This is best for review/debug questions like "does this Builder SQL match the schema?". It is heuristic, not a full SQL parser: it checks literal refs and join predicates, not runtime SQL semantics.
+
+Provide exactly one selector:
+
+- `--symbol <name>` to validate SQL refs inside a symbol
+- `--file <path>` to validate SQL refs inside a file
+
+Useful options:
+
+- `--limit <n>` to control how many rows are shown per result section
+
 ### `cartograph search-content <query> --repo-path <path>`
 
 Search indexed source content by literal substring and map matches back to enclosing symbols.
@@ -235,6 +250,8 @@ Useful options:
 
 Trace execution flow forward from a fully qualified symbol.
 
+The flow view now also surfaces thrown and caught exceptions found on traced classes so you can quickly answer "what can this endpoint throw?" without manually reading every downstream method.
+
 Useful options:
 
 - `--depth <n>` for traversal depth
@@ -253,6 +270,7 @@ The MCP server currently exposes these tools:
 - `cartograph_table_graph` - traverse the foreign-key neighborhood around a table
 - `cartograph_table_usage` - bridge a table to mapped entities, mapped columns, direct table-name references, and explicit upstream framework touchpoints
 - `cartograph_column_usage` - show mapped properties plus likely write-like refs for a column, scoped to files that already touch the table
+- `cartograph_sql_validate` - validate literal SQL-ish table, column, and join refs in a symbol or file against the current indexed schema (heuristic, not a full SQL parser)
 - `cartograph_test_targets` - suggest likely test files for a symbol, file, or table using direct test-side signals where available (ranked heuristics, not exhaustive)
 - `cartograph_scaffold_plan` - plan the files and class names needed to mirror a reference slice for a new target, including conventional Interface companions (planning only; does not write files)
 - `cartograph_route_pairs` - audit nested routes against likely flat equivalents using route path/resource naming heuristics
@@ -264,7 +282,7 @@ The MCP server currently exposes these tools:
 - `cartograph_blast_radius` - show file-level impact
 - `cartograph_compare` - compare two symbols structurally, with an option to hide identical shared methods
 - `cartograph_compare_many` - compare one baseline symbol against multiple peers, including full inlined shared-method diffs while omitting identical methods by default
-- `cartograph_flow` - follow execution flow from an entry symbol
+- `cartograph_flow` - follow execution flow from an entry symbol, including thrown/caught exceptions surfaced on traced classes
 
 ### Example MCP Config
 

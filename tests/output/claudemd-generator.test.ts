@@ -46,13 +46,14 @@ describe('generateClaudeMdSection', () => {
     expect(result).toContain('122,000 symbols');
   });
 
-  it('lists all 18 MCP tools with descriptions', () => {
+  it('lists all 19 MCP tools with descriptions', () => {
     const result = generateClaudeMdSection(makeStats(), makeConventions());
     expect(result).toContain('cartograph_schema');
     expect(result).toContain('cartograph_table');
     expect(result).toContain('cartograph_table_graph');
     expect(result).toContain('cartograph_table_usage');
     expect(result).toContain('cartograph_column_usage');
+    expect(result).toContain('cartograph_sql_validate');
     expect(result).toContain('cartograph_test_targets');
     expect(result).toContain('cartograph_scaffold_plan');
     expect(result).toContain('cartograph_route_pairs');
@@ -83,12 +84,14 @@ describe('generateClaudeMdSection', () => {
     expect(result).toContain('cartograph_table_graph');
     expect(result).toContain('cartograph_table_usage');
     expect(result).toContain('cartograph_column_usage');
+    expect(result).toContain('cartograph_sql_validate');
     expect(result).toContain('cartograph_search_content');
   });
 
   it('includes clear tool limits for planning and heuristic tools', () => {
     const result = generateClaudeMdSection(makeStats(), makeConventions());
     expect(result).toContain('### Tool Limits');
+    expect(result).toContain('full SQL parser');
     expect(result).toContain('ranked suggestions only');
     expect(result).toContain('does not write files');
     expect(result).toContain('does not infer file lists');

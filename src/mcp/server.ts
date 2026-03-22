@@ -27,6 +27,7 @@ import { handleTableUsage } from './tools/table-usage.js';
 import { handleTestTargets } from './tools/test-targets.js';
 import { handleRoutePairs } from './tools/route-pairs.js';
 import { handleColumnUsage } from './tools/column-usage.js';
+import { handleSqlValidate } from './tools/sql-validate.js';
 import { getIndexStalenessWarning } from '../utils/index-freshness.js';
 
 interface ServerOptions {
@@ -148,6 +149,18 @@ export function createServer(opts: ServerOptions): McpServer {
       includeTests: z.boolean().optional().describe('Include test files in scoped column refs (default false)'),
     },
     async ({ table, column, limit, includeTests }) => wrap(() => handleColumnUsage(deps, { table, column, limit, includeTests }))
+  );
+
+  // --- cartograph_sql_validate ---
+  server.tool(
+    'cartograph_sql_validate',
+    'Validate literal SQL-ish table, column, and join refs in a symbol or file against the current indexed schema. Best for review questions like "does this Builder SQL match the table schema?". Heuristic only: it checks literal refs and join predicates, not full runtime SQL semantics.',
+    {
+      symbol: z.string().optional().describe('Symbol to validate SQL refs inside. Mutually exclusive with file.'),
+      file: z.string().optional().describe('File path relative to repo root to validate SQL refs inside. Mutually exclusive with symbol.'),
+      limit: z.number().min(1).max(50).optional().describe('Max rows to show per result section (default 20)'),
+    },
+    async ({ symbol, file, limit }) => wrap(() => handleSqlValidate(deps, { symbol, file, limit }))
   );
 
   // --- cartograph_test_targets ---
@@ -283,7 +296,7 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_flow ---
   server.tool(
     'cartograph_flow',
-    'Trace an execution flow end-to-end from an entrypoint',
+    'Trace an execution flow end-to-end from an entrypoint, including thrown/caught exceptions surfaced on traced classes.',
     {
       symbol: z.string().describe('Fully qualified symbol name (entrypoint)'),
       depth: z.number().min(1).max(15).optional().describe('Max trace depth (default 5)'),

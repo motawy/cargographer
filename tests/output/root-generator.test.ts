@@ -120,6 +120,7 @@ describe('generateRoot', () => {
     expect(result).toContain('cartograph_table');
     expect(result).toContain('cartograph_table_graph');
     expect(result).toContain('cartograph_table_usage');
+    expect(result).toContain('cartograph_sql_validate');
     expect(result).toContain('cartograph_test_targets');
     expect(result).toContain('cartograph_scaffold_plan');
     expect(result).toContain('does not write files');
@@ -130,6 +131,7 @@ describe('generateRoot', () => {
     expect(result).toContain('cartograph_find');
     expect(result).toContain('cartograph_compare_many');
     expect(result).toContain('full inlined shared-method body and wiring diffs');
+    expect(result).toContain('thrown/caught exceptions');
     expect(result).toContain('Use these before grepping');
   });
 

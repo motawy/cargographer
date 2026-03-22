@@ -166,7 +166,7 @@ function extractClassLike(
       const member = body.child(i)!;
       switch (member.type) {
         case 'method_declaration':
-          children.push(extractMethod(member, qualifiedName));
+          children.push(extractMethod(member, qualifiedName, context));
           break;
         case 'property_declaration':
           children.push(...extractProperties(member, qualifiedName));
@@ -237,7 +237,8 @@ function extractClassLike(
 
 function extractMethod(
   node: SyntaxNode,
-  parentQualifiedName: string
+  parentQualifiedName: string,
+  context: NamespaceContext
 ): ParsedSymbol {
   const nameNode = findChild(node, 'name');
   const name = nameNode?.text || '';
@@ -264,6 +265,17 @@ function extractMethod(
   }
   if (contextArgs.params.length > 0) {
     metadata.contextParams = contextArgs.params;
+  }
+
+  const exceptionSignals = extractExceptionSignals(node, context, docblock);
+  if (exceptionSignals.thrown.length > 0) {
+    metadata.thrownExceptions = exceptionSignals.thrown;
+  }
+  if (exceptionSignals.caught.length > 0) {
+    metadata.caughtExceptions = exceptionSignals.caught;
+  }
+  if (exceptionSignals.documented.length > 0) {
+    metadata.documentedThrows = exceptionSignals.documented;
   }
 
   return {
@@ -309,6 +321,56 @@ function extractContextAccess(methodNode: SyntaxNode): { args: string[]; params:
   return { args: [...args], params: [...params] };
 }
 
+function extractExceptionSignals(
+  node: SyntaxNode,
+  context: NamespaceContext,
+  docblock: string | null
+): { thrown: string[]; caught: string[]; documented: string[] } {
+  const thrown = new Set<string>();
+  const caught = new Set<string>();
+  const documented = new Set<string>();
+  const bodyNode = findChild(node, 'compound_statement');
+  const bodyText = bodyNode?.text ?? '';
+
+  const throwPattern = /throw\s+new\s+([\\A-Za-z_][A-Za-z0-9_\\]*)/g;
+  let match: RegExpExecArray | null;
+  while ((match = throwPattern.exec(bodyText)) !== null) {
+    addResolvedExceptionName(thrown, match[1], context);
+  }
+
+  const catchPattern = /catch\s*\(\s*([^)]+?)\s+\$[A-Za-z_][A-Za-z0-9_]*\s*\)/g;
+  while ((match = catchPattern.exec(bodyText)) !== null) {
+    for (const rawType of match[1].split('|')) {
+      addResolvedExceptionName(caught, rawType, context);
+    }
+  }
+
+  if (docblock) {
+    const docblockPattern = /@throws\s+([^\s*]+)/g;
+    while ((match = docblockPattern.exec(docblock)) !== null) {
+      for (const rawType of match[1].split('|')) {
+        addResolvedExceptionName(documented, rawType, context);
+      }
+    }
+  }
+
+  return {
+    thrown: [...thrown].sort(),
+    caught: [...caught].sort(),
+    documented: [...documented].sort(),
+  };
+}
+
+function addResolvedExceptionName(
+  bucket: Set<string>,
+  rawType: string,
+  context: NamespaceContext
+): void {
+  const trimmed = rawType.trim().replace(/^\?+/, '');
+  if (!trimmed) return;
+  bucket.add(resolveTypeName(trimmed, context));
+}
+
 // --- Function extraction ---
 
 function extractFunction(
@@ -321,6 +383,18 @@ function extractFunction(
   const returnType = extractReturnType(node);
   const signature = extractSignature(node);
   const docblock = extractDocblock(node);
+  const metadata: Record<string, unknown> = {};
+
+  const exceptionSignals = extractExceptionSignals(node, context, docblock);
+  if (exceptionSignals.thrown.length > 0) {
+    metadata.thrownExceptions = exceptionSignals.thrown;
+  }
+  if (exceptionSignals.caught.length > 0) {
+    metadata.caughtExceptions = exceptionSignals.caught;
+  }
+  if (exceptionSignals.documented.length > 0) {
+    metadata.documentedThrows = exceptionSignals.documented;
+  }
 
   return {
     name,
@@ -333,7 +407,7 @@ function extractFunction(
     returnType,
     docblock,
     children: [],
-    metadata: {},
+    metadata,
   };
 }
 

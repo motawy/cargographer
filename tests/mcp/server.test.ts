@@ -83,7 +83,7 @@ describe('MCP Server Integration', () => {
     db.close();
   });
 
-  it('lists all 18 tools', async () => {
+  it('lists all 19 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map(t => t.name).sort();
     expect(names).toEqual([
@@ -99,6 +99,7 @@ describe('MCP Server Integration', () => {
       'cartograph_scaffold_plan',
       'cartograph_schema',
       'cartograph_search_content',
+      'cartograph_sql_validate',
       'cartograph_status',
       'cartograph_symbol',
       'cartograph_table',
@@ -159,6 +160,12 @@ describe('MCP Server Integration', () => {
     const result = await client.callTool({ name: 'cartograph_route_pairs', arguments: {} });
     const text = (result.content as { type: string; text: string }[])[0].text;
     expect(text).toContain('No route endpoint families');
+  });
+
+  it('handles cartograph_sql_validate tool call', async () => {
+    const result = await client.callTool({ name: 'cartograph_sql_validate', arguments: {} });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('Provide exactly one');
   });
 
   it('prepends a stale-index warning to non-status tool calls', async () => {

@@ -8,6 +8,13 @@ interface FlowParams {
   depth?: number;
 }
 
+interface ExceptionSummaryEntry {
+  exceptionName: string;
+  ownerQualifiedName: string;
+  methodName: string;
+  source: 'throw' | 'docblock' | 'catch';
+}
+
 export function handleFlow(deps: ToolDeps, params: FlowParams): string {
   const { repoId, symbolRepo, refRepo } = deps;
   const maxDepth = Math.max(1, Math.min(params.depth ?? 5, 15));
@@ -38,12 +45,16 @@ export function handleFlow(deps: ToolDeps, params: FlowParams): string {
     if (current.depth > maxDepth) continue;
     visited.add(current.symbolId);
 
+    const currentSymbol = symbolRepo.findById(current.symbolId);
+    if (!currentSymbol) continue;
+
     const indent = '  '.repeat(current.depth);
     const prefix = current.depth === 0
       ? `${current.depth + 1}.`
       : `${current.depth + 1}. \u2192`;
     const viaLabel = current.via ? `  (${current.via})` : '';
     lines.push(`${indent}${prefix} ${current.qualifiedName}${viaLabel}`);
+    appendExceptionSummary(lines, indent, currentSymbol, symbolRepo);
     maxReached = Math.max(maxReached, current.depth);
 
     // Get direct refs (includes children's refs via findDependencies)
@@ -124,6 +135,87 @@ export function handleFlow(deps: ToolDeps, params: FlowParams): string {
   lines.push(`Nodes visited: ${visited.size} | Max depth reached: ${maxReached}`);
 
   return lines.join('\n');
+}
+
+function appendExceptionSummary(
+  lines: string[],
+  indent: string,
+  symbol: NonNullable<ReturnType<ToolDeps['symbolRepo']['findById']>>,
+  symbolRepo: ToolDeps['symbolRepo']
+): void {
+  const thrown = collectExceptionEntries(symbol, symbolRepo, ['throw', 'docblock']);
+  const caught = collectExceptionEntries(symbol, symbolRepo, ['catch']);
+
+  if (thrown.length === 0 && caught.length === 0) {
+    return;
+  }
+
+  const detailIndent = `${indent}   `;
+  if (thrown.length > 0) {
+    lines.push(`${detailIndent}throws: ${formatExceptionEntries(thrown)}`);
+  }
+  if (caught.length > 0) {
+    lines.push(`${detailIndent}catches: ${formatExceptionEntries(caught)}`);
+  }
+}
+
+function collectExceptionEntries(
+  symbol: NonNullable<ReturnType<ToolDeps['symbolRepo']['findById']>>,
+  symbolRepo: ToolDeps['symbolRepo'],
+  sources: Array<ExceptionSummaryEntry['source']>
+): ExceptionSummaryEntry[] {
+  const entries = new Map<string, ExceptionSummaryEntry>();
+  const symbols = symbol.kind === 'method' || symbol.kind === 'function'
+    ? [symbol]
+    : symbolRepo.findChildren(symbol.id).filter((child) => child.kind === 'method');
+
+  for (const child of symbols) {
+    const metadata = child.metadata || {};
+    const ownerQualifiedName = child.qualifiedName?.split('::')[0] ?? symbol.qualifiedName ?? symbol.name;
+    const methodName = child.kind === 'method'
+      ? child.name
+      : child.qualifiedName ?? child.name;
+
+    const buckets: Array<{ values: unknown; source: ExceptionSummaryEntry['source'] }> = [
+      { values: metadata.thrownExceptions, source: 'throw' },
+      { values: metadata.documentedThrows, source: 'docblock' },
+      { values: metadata.caughtExceptions, source: 'catch' },
+    ];
+
+    for (const bucket of buckets) {
+      if (!sources.includes(bucket.source) || !Array.isArray(bucket.values)) continue;
+      for (const exceptionName of bucket.values.filter((value): value is string => typeof value === 'string')) {
+        const key = `${bucket.source}|${exceptionName}|${ownerQualifiedName}|${methodName}`;
+        if (entries.has(key)) continue;
+        entries.set(key, {
+          exceptionName,
+          ownerQualifiedName,
+          methodName,
+          source: bucket.source,
+        });
+      }
+    }
+  }
+
+  return [...entries.values()].sort((a, b) => {
+    if (a.exceptionName !== b.exceptionName) {
+      return a.exceptionName.localeCompare(b.exceptionName);
+    }
+    if (a.ownerQualifiedName !== b.ownerQualifiedName) {
+      return a.ownerQualifiedName.localeCompare(b.ownerQualifiedName);
+    }
+    if (a.methodName !== b.methodName) {
+      return a.methodName.localeCompare(b.methodName);
+    }
+    return a.source.localeCompare(b.source);
+  });
+}
+
+function formatExceptionEntries(entries: ExceptionSummaryEntry[]): string {
+  return entries.map((entry) => {
+    const qualifier = entry.source === 'docblock' ? ' [docblock]' : '';
+    return `${entry.exceptionName}${qualifier} via ${entry.ownerQualifiedName}::${entry.methodName}()`;
+  }).join('; ');
 }
 
 /**

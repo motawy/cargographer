@@ -58,12 +58,14 @@ describe('Generate CLAUDE.md integration', () => {
     expect(section).toContain('cartograph_table_graph');
     expect(section).toContain('cartograph_table_usage');
     expect(section).toContain('cartograph_column_usage');
+    expect(section).toContain('cartograph_sql_validate');
     expect(section).toContain('cartograph_scaffold_plan');
     expect(section).toContain('cartograph_route_pairs');
     expect(section).toContain('cartograph_find');
     expect(section).toContain('cartograph_search_content');
     expect(section).toContain('cartograph_compare');
     expect(section).toContain('cartograph_compare_many');
+    expect(section).toContain('thrown/caught exceptions');
   });
 
   it('injects into existing CLAUDE.md preserving content', () => {

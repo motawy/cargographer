@@ -454,6 +454,56 @@ class DoubleQuoteBuilder {
     });
   });
 
+  describe('exception metadata extraction', () => {
+    it('extracts thrown exceptions from method bodies', () => {
+      const source = readFileSync(
+        join(FIXTURES, 'app/Services/UserService.php'),
+        'utf-8'
+      );
+      const result = parsePHP(parser.parse(source));
+      const service = result.symbols[0];
+      const update = service.children.find((c) => c.name === 'update');
+
+      expect(update?.metadata.thrownExceptions).toEqual(['RuntimeException']);
+    });
+
+    it('extracts caught and documented exceptions', () => {
+      const source = `<?php
+namespace App\\Builders;
+
+use RuntimeException;
+use Throwable;
+
+class ImportBuilder {
+    /**
+     * @throws \\DomainException
+     */
+    protected function import(): void
+    {
+        try {
+            throw new RuntimeException('boom');
+        } catch (Throwable | RuntimeException $e) {
+            throw new \\LogicException('wrapped');
+        }
+    }
+}
+`;
+      const result = parsePHP(parser.parse(source));
+      const cls = result.symbols[0];
+      const method = cls.children.find((c) => c.name === 'import');
+
+      expect(method?.metadata.thrownExceptions).toEqual([
+        'LogicException',
+        'RuntimeException',
+      ]);
+      expect(method?.metadata.caughtExceptions).toEqual([
+        'RuntimeException',
+        'Throwable',
+      ]);
+      expect(method?.metadata.documentedThrows).toEqual(['DomainException']);
+    });
+  });
+
   describe('standalone functions', () => {
     it('extracts top-level function definitions', () => {
       const source = `<?php

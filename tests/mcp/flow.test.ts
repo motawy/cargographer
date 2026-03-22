@@ -147,4 +147,62 @@ describe('cartograph_flow', () => {
     // Flow should trace through parent's init() → child's getControllerName() → Controller
     expect(result).toContain('App\\MyController');
   });
+
+  it('surfaces thrown and caught exceptions along the traced flow', () => {
+    const repoRepo = new RepoRepository(db);
+    const fileRepo = new FileRepository(db);
+    const symbolRepo = new SymbolRepository(db);
+    const refRepo = new ReferenceRepository(db);
+
+    const repo = repoRepo.findOrCreate('/test/exception-flow', 'test-ex-flow');
+    const fRoute = fileRepo.upsert(repo.id, 'route.php', 'php', 'xf1', 40);
+    const fBuilder = fileRepo.upsert(repo.id, 'builder.php', 'php', 'xf2', 60);
+
+    const routeIds = symbolRepo.replaceFileSymbols(fRoute.id, [{
+      name: 'OrdersRoute', qualifiedName: 'App\\OrdersRoute', kind: 'class', visibility: null,
+      lineStart: 1, lineEnd: 40, signature: null, returnType: null,
+      docblock: null, metadata: {},
+      children: [{
+        name: 'getBuilderName', qualifiedName: 'App\\OrdersRoute::getBuilderName', kind: 'method',
+        visibility: 'protected', lineStart: 10, lineEnd: 13, signature: null, returnType: null,
+        docblock: null, children: [], metadata: {},
+      }],
+    }]);
+
+    symbolRepo.replaceFileSymbols(fBuilder.id, [{
+      name: 'OrdersBuilder', qualifiedName: 'App\\OrdersBuilder', kind: 'class', visibility: null,
+      lineStart: 1, lineEnd: 60, signature: null, returnType: null,
+      docblock: null, metadata: {},
+      children: [
+        {
+          name: 'persist', qualifiedName: 'App\\OrdersBuilder::persist', kind: 'method',
+          visibility: 'protected', lineStart: 12, lineEnd: 20, signature: null, returnType: null,
+          docblock: null, children: [], metadata: {
+            thrownExceptions: ['RuntimeException'],
+            documentedThrows: ['DomainException'],
+          },
+        },
+        {
+          name: 'respond', qualifiedName: 'App\\OrdersBuilder::respond', kind: 'method',
+          visibility: 'protected', lineStart: 22, lineEnd: 30, signature: null, returnType: null,
+          docblock: null, children: [], metadata: {
+            caughtExceptions: ['Throwable'],
+          },
+        },
+      ],
+    }]);
+
+    refRepo.replaceFileReferences(fRoute.id, routeIds, [
+      { sourceQualifiedName: 'App\\OrdersRoute::getBuilderName', targetQualifiedName: 'app\\ordersbuilder', kind: 'class_reference', line: 11 },
+    ]);
+    refRepo.resolveTargets(repo.id);
+
+    const flowDeps: ToolDeps = { repoId: repo.id, symbolRepo, refRepo };
+    const result = handleFlow(flowDeps, { symbol: 'App\\OrdersRoute', depth: 2 });
+
+    expect(result).toContain('App\\OrdersBuilder');
+    expect(result).toContain('throws: DomainException [docblock] via App\\OrdersBuilder::persist()');
+    expect(result).toContain('RuntimeException via App\\OrdersBuilder::persist()');
+    expect(result).toContain('catches: Throwable via App\\OrdersBuilder::respond()');
+  });
 });
