@@ -36,43 +36,43 @@ export async function importPgSchema(config: PgConnectionConfig): Promise<Materi
 
   await client.connect();
   try {
-    const [tablesResult, columnsResult, foreignKeysResult] = await Promise.all([
-      client.query<PgTableRow>(
-        `SELECT table_name
-         FROM information_schema.tables
-         WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-         ORDER BY table_name`
-      ),
-      client.query<PgColumnRow>(
-        `SELECT c.table_name, c.column_name, c.data_type, c.is_nullable,
-                c.column_default, c.ordinal_position
-         FROM information_schema.columns c
-         JOIN information_schema.tables t
-           ON c.table_schema = t.table_schema
-          AND c.table_name = t.table_name
-         WHERE t.table_schema = 'public'
-           AND t.table_type = 'BASE TABLE'
-         ORDER BY c.table_name, c.ordinal_position`
-      ),
-      client.query<PgForeignKeyRow>(
-        `SELECT
-           tc.constraint_name,
-           tc.table_name AS source_table,
-           kcu.column_name AS source_column,
-           ccu.table_name AS target_table,
-           ccu.column_name AS target_column
-         FROM information_schema.table_constraints tc
-         JOIN information_schema.key_column_usage kcu
-           ON tc.constraint_name = kcu.constraint_name
-          AND tc.table_schema = kcu.table_schema
-         JOIN information_schema.constraint_column_usage ccu
-           ON tc.constraint_name = ccu.constraint_name
-          AND tc.table_schema = ccu.table_schema
-         WHERE tc.constraint_type = 'FOREIGN KEY'
-           AND tc.table_schema = 'public'
-         ORDER BY tc.table_name, tc.constraint_name, kcu.ordinal_position`
-      ),
-    ]);
+    const tablesResult = await client.query<PgTableRow>(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+       ORDER BY table_name`
+    );
+
+    const columnsResult = await client.query<PgColumnRow>(
+      `SELECT c.table_name, c.column_name, c.data_type, c.is_nullable,
+              c.column_default, c.ordinal_position
+       FROM information_schema.columns c
+       JOIN information_schema.tables t
+         ON c.table_schema = t.table_schema
+        AND c.table_name = t.table_name
+       WHERE t.table_schema = 'public'
+         AND t.table_type = 'BASE TABLE'
+       ORDER BY c.table_name, c.ordinal_position`
+    );
+
+    const foreignKeysResult = await client.query<PgForeignKeyRow>(
+      `SELECT
+         tc.constraint_name,
+         tc.table_name AS source_table,
+         kcu.column_name AS source_column,
+         ccu.table_name AS target_table,
+         ccu.column_name AS target_column
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+       JOIN information_schema.constraint_column_usage ccu
+         ON tc.constraint_name = ccu.constraint_name
+        AND tc.table_schema = ccu.table_schema
+       WHERE tc.constraint_type = 'FOREIGN KEY'
+         AND tc.table_schema = 'public'
+       ORDER BY tc.table_name, tc.constraint_name, kcu.ordinal_position`
+    );
 
     return buildImportedTables(
       tablesResult.rows,
