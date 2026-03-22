@@ -153,9 +153,13 @@ Useful options:
 
 Compare one baseline symbol against several peers to spot missing methods, extra methods, and shared behavioral deltas.
 
+This is a symbol-level comparison tool. It now shows shared-method body and wiring diffs, but it does not tell you which files to create. Use `scaffold-plan` for that.
+
 ### `cartograph test-targets --repo-path <path>`
 
 Suggest likely test files for a symbol, file, or table using indexed structure, naming heuristics, and test-side content matches when available.
+
+Provide exactly one of `--symbol`, `--file`, or `--table`. Results are heuristic and ranked, not exhaustive.
 
 Useful options:
 
@@ -167,6 +171,8 @@ Useful options:
 ### `cartograph scaffold-plan <reference> <target> --repo-path <path>`
 
 Plan the files and class names needed to mirror a reference slice for a new target stem.
+
+This is a planning tool only. It infers analogous files by renaming the reference slice and can summarize gaps for target files that already exist, but it does not write files or guarantee config/registration wiring outside that slice.
 
 Useful options:
 
@@ -212,9 +218,9 @@ The MCP server currently exposes these tools:
 - `cartograph_schema` - list or search current database tables
 - `cartograph_table` - inspect current SQL table state, its columns, and foreign key relationships
 - `cartograph_table_graph` - traverse the foreign-key neighborhood around a table
-- `cartograph_table_usage` - bridge a table to mapped entities, entity-based touchpoints, and direct table-name references
-- `cartograph_test_targets` - suggest likely test files for a symbol, file, or table
-- `cartograph_scaffold_plan` - plan the files and class names needed to mirror a reference slice for a new target
+- `cartograph_table_usage` - bridge a table to mapped entities, mapped columns, entity-based touchpoints, and direct table-name references
+- `cartograph_test_targets` - suggest likely test files for a symbol, file, or table (ranked heuristics, not exhaustive)
+- `cartograph_scaffold_plan` - plan the files and class names needed to mirror a reference slice for a new target (planning only; does not write files)
 - `cartograph_find` - search symbols by name, kind, and optional path filter
 - `cartograph_search_content` - search method bodies and other indexed source text by literal substring
 - `cartograph_symbol` - inspect a symbol and its relationships

@@ -83,6 +83,14 @@ describe('generateClaudeMdSection', () => {
     expect(result).toContain('cartograph_search_content');
   });
 
+  it('includes clear tool limits for planning and heuristic tools', () => {
+    const result = generateClaudeMdSection(makeStats(), makeConventions());
+    expect(result).toContain('### Tool Limits');
+    expect(result).toContain('ranked suggestions only');
+    expect(result).toContain('does not write files');
+    expect(result).toContain('does not infer file lists');
+  });
+
   it('includes cartograph_status guidance', () => {
     const result = generateClaudeMdSection(makeStats(), makeConventions());
     expect(result).toContain('cartograph_status');

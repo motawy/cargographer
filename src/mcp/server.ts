@@ -112,12 +112,12 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_table_usage ---
   server.tool(
     'cartograph_table_usage',
-    'Bridge schema to code: show mapped entities, entity-based touchpoints, and direct table-name references for a table.',
+    'Bridge schema to code: show mapped entities, mapped columns, entity-based touchpoints, and indexed direct table-name references for a table. Best for table-to-code tracing; may miss patterns with no explicit mapping or table-name signal.',
     {
-      name: z.string().describe('Table name, optionally schema-qualified'),
-      depth: z.number().min(1).max(5).optional().describe('Transitive code-reference depth (default 3)'),
-      limit: z.number().min(1).max(100).optional().describe('Max code touchpoints to show (default 25)'),
-      includeTests: z.boolean().optional().describe('Include test code in touchpoints and direct table-name references (default false)'),
+      name: z.string().describe('Table name, optionally schema-qualified. Use the full table name when partial matches are ambiguous.'),
+      depth: z.number().min(1).max(5).optional().describe('Transitive entity-graph depth for code touchpoints (default 3)'),
+      limit: z.number().min(1).max(100).optional().describe('Max touchpoints to show per section before test filtering (default 25)'),
+      includeTests: z.boolean().optional().describe('Include test code in both touchpoints and direct table-name references (default false)'),
     },
     async ({ name, depth, limit, includeTests }) => wrap(() => handleTableUsage(deps, { name, depth, limit, includeTests }))
   );
@@ -125,12 +125,12 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_test_targets ---
   server.tool(
     'cartograph_test_targets',
-    'Suggest likely test files for a symbol, file, or table using indexed structure and naming heuristics.',
+    'Suggest likely test files for a symbol, file, or table using indexed structure, naming heuristics, and direct test-side matches. Provide exactly one of symbol/file/table. Results are ranked suggestions, not an exhaustive list.',
     {
-      symbol: z.string().optional().describe('Symbol to find relevant tests for'),
-      file: z.string().optional().describe('File path relative to repo root'),
-      table: z.string().optional().describe('Database table name'),
-      limit: z.number().min(1).max(25).optional().describe('Max suggested test files (default 10)'),
+      symbol: z.string().optional().describe('Symbol to find relevant tests for. Mutually exclusive with file and table.'),
+      file: z.string().optional().describe('File path relative to repo root. Mutually exclusive with symbol and table.'),
+      table: z.string().optional().describe('Database table name. Mutually exclusive with symbol and file.'),
+      limit: z.number().min(1).max(25).optional().describe('Max ranked suggestions to return (default 10)'),
     },
     async ({ symbol, file, table, limit }) => wrap(() => handleTestTargets(deps, { symbol, file, table, limit }))
   );
@@ -138,11 +138,11 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_scaffold_plan ---
   server.tool(
     'cartograph_scaffold_plan',
-    'Plan the files and class names needed to mirror a reference slice for a new target stem, and show gap summaries for targets that already exist.',
+    'Plan the files and class names needed to mirror a reference slice for a new target stem. Rename-based planning only: it does not write files and may miss framework/config wiring outside the indexed slice.',
     {
-      reference: z.string().describe('Reference symbol to mirror'),
-      target: z.string().describe('Target stem or class name to substitute into the planned slice'),
-      depth: z.number().min(1).max(6).optional().describe('Forward traversal depth for collecting the reference slice (default 4)'),
+      reference: z.string().describe('Reference top-level symbol to mirror, usually a Route/Controller/Builder/Model-style class'),
+      target: z.string().describe('Target stem or class-family name to substitute into the inferred slice'),
+      depth: z.number().min(1).max(6).optional().describe('Forward traversal depth for collecting the reference slice (default 4). Larger values pull in more neighboring classes.'),
     },
     async ({ reference, target, depth }) => wrap(() => handleScaffoldPlan(deps, { reference, target, depth }))
   );
@@ -230,10 +230,10 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_compare_many ---
   server.tool(
     'cartograph_compare_many',
-    'Compare one baseline symbol against multiple peers to spot missing methods, extra methods, and shared behavioral differences.',
+    'Compare one baseline symbol against multiple peers to spot missing methods, extra methods, and shared-method wiring/body differences. Symbol-level comparison only: it does not infer file lists to create.',
     {
       baseline: z.string().describe('Baseline symbol to use as the pattern or reference implementation'),
-      others: z.array(z.string()).min(1).max(10).describe('One or more peer symbols to compare against the baseline'),
+      others: z.array(z.string()).min(1).max(10).describe('One or more peer symbols to compare against the baseline. Best used for sibling classes in the same pattern family.'),
     },
     async ({ baseline, others }) => wrap(() => handleCompareMany(deps, { baseline, others }))
   );

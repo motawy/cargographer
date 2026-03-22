@@ -122,12 +122,14 @@ describe('generateRoot', () => {
     expect(result).toContain('cartograph_table_usage');
     expect(result).toContain('cartograph_test_targets');
     expect(result).toContain('cartograph_scaffold_plan');
+    expect(result).toContain('does not write files');
     expect(result).toContain('cartograph_search_content');
     expect(result).toContain('cartograph_symbol');
     expect(result).toContain('cartograph_deps');
     expect(result).toContain('cartograph_blast_radius');
     expect(result).toContain('cartograph_find');
     expect(result).toContain('cartograph_compare_many');
+    expect(result).toContain('shared-method body and wiring diffs');
     expect(result).toContain('Use these before grepping');
   });
 
