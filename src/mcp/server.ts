@@ -21,6 +21,7 @@ import { handleSchema } from './tools/schema.js';
 import { handleTable } from './tools/table.js';
 import { handleTableGraph } from './tools/table-graph.js';
 import { handleSearchContent } from './tools/search-content.js';
+import { handleScaffoldPlan } from './tools/scaffold-plan.js';
 import { handleTableUsage } from './tools/table-usage.js';
 import { handleTestTargets } from './tools/test-targets.js';
 
@@ -132,6 +133,18 @@ export function createServer(opts: ServerOptions): McpServer {
       limit: z.number().min(1).max(25).optional().describe('Max suggested test files (default 10)'),
     },
     async ({ symbol, file, table, limit }) => wrap(() => handleTestTargets(deps, { symbol, file, table, limit }))
+  );
+
+  // --- cartograph_scaffold_plan ---
+  server.tool(
+    'cartograph_scaffold_plan',
+    'Plan the files and class names needed to mirror a reference slice for a new target stem, and show gap summaries for targets that already exist.',
+    {
+      reference: z.string().describe('Reference symbol to mirror'),
+      target: z.string().describe('Target stem or class name to substitute into the planned slice'),
+      depth: z.number().min(1).max(6).optional().describe('Forward traversal depth for collecting the reference slice (default 4)'),
+    },
+    async ({ reference, target, depth }) => wrap(() => handleScaffoldPlan(deps, { reference, target, depth }))
   );
 
   // --- cartograph_find ---

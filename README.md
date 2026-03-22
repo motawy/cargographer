@@ -164,6 +164,14 @@ Useful options:
 - `--table <name>` to suggest tests for a database table
 - `--limit <n>` to control how many suggestions are shown
 
+### `cartograph scaffold-plan <reference> <target> --repo-path <path>`
+
+Plan the files and class names needed to mirror a reference slice for a new target stem.
+
+Useful options:
+
+- `--depth <n>` to control how far Cartograph walks the reference slice
+
 ### `cartograph serve --repo-path <path>`
 
 Start the MCP server for an indexed repo using stdio transport.
@@ -206,6 +214,7 @@ The MCP server currently exposes these tools:
 - `cartograph_table_graph` - traverse the foreign-key neighborhood around a table
 - `cartograph_table_usage` - bridge a table to mapped entities, entity-based touchpoints, and direct table-name references
 - `cartograph_test_targets` - suggest likely test files for a symbol, file, or table
+- `cartograph_scaffold_plan` - plan the files and class names needed to mirror a reference slice for a new target
 - `cartograph_find` - search symbols by name, kind, and optional path filter
 - `cartograph_search_content` - search method bodies and other indexed source text by literal substring
 - `cartograph_symbol` - inspect a symbol and its relationships

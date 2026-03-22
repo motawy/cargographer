@@ -57,6 +57,7 @@ describe('Generate CLAUDE.md integration', () => {
     expect(section).toContain('cartograph_schema');
     expect(section).toContain('cartograph_table_graph');
     expect(section).toContain('cartograph_table_usage');
+    expect(section).toContain('cartograph_scaffold_plan');
     expect(section).toContain('cartograph_find');
     expect(section).toContain('cartograph_search_content');
     expect(section).toContain('cartograph_compare');

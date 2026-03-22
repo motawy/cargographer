@@ -40,6 +40,7 @@ export function generateRoot(stats: RepoStats, conventions?: ConventionsData): s
   lines.push(`- **cartograph_table_graph** \`<table>\` — walk the foreign-key neighborhood around a table to understand connected areas`);
   lines.push(`- **cartograph_table_usage** \`<table>\` — bridge database tables to mapped entities, entity touchpoints, and direct table-name references`);
   lines.push(`- **cartograph_test_targets** — suggest likely test files for a symbol, file, or table`);
+  lines.push(`- **cartograph_scaffold_plan** \`<reference> <target>\` — plan the files and class names needed to mirror an existing slice for a new target`);
   lines.push(`- **cartograph_search_content** \`<query>\` — search method bodies and other indexed source text by literal substring`);
   lines.push(`- **cartograph_symbol** \`<name>\` — look up a class/interface/function and its relationships`);
   lines.push(`- **cartograph_deps** \`<symbol>\` — what does this symbol depend on? (directed graph, configurable depth)`);

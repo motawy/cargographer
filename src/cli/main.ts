@@ -15,6 +15,7 @@ import { createTableUsageCommand } from './table-usage.js';
 import { createSchemaImportCommand } from './schema-import.js';
 import { createSearchContentCommand } from './search-content.js';
 import { createCompareManyCommand } from './compare-many.js';
+import { createScaffoldPlanCommand } from './scaffold-plan.js';
 import { createTestTargetsCommand } from './test-targets.js';
 
 const program = new Command();
@@ -38,6 +39,7 @@ program.addCommand(createTableUsageCommand());
 program.addCommand(createSchemaImportCommand());
 program.addCommand(createSearchContentCommand());
 program.addCommand(createCompareManyCommand());
+program.addCommand(createScaffoldPlanCommand());
 program.addCommand(createTestTargetsCommand());
 program.addCommand(createServeCommand());
 

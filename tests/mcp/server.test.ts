@@ -83,7 +83,7 @@ describe('MCP Server Integration', () => {
     db.close();
   });
 
-  it('lists all 15 tools', async () => {
+  it('lists all 16 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map(t => t.name).sort();
     expect(names).toEqual([
@@ -94,6 +94,7 @@ describe('MCP Server Integration', () => {
       'cartograph_deps',
       'cartograph_find',
       'cartograph_flow',
+      'cartograph_scaffold_plan',
       'cartograph_schema',
       'cartograph_search_content',
       'cartograph_status',
@@ -137,5 +138,12 @@ describe('MCP Server Integration', () => {
     const text = (result.content as { type: string; text: string }[])[0].text;
     expect(text).toContain('## Test Targets');
     expect(text).toContain('tests/FooTest.php');
+  });
+
+  it('handles cartograph_scaffold_plan tool call', async () => {
+    const result = await client.callTool({ name: 'cartograph_scaffold_plan', arguments: { reference: 'App\\Foo', target: 'Bar' } });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('## Scaffold Plan: App\\Foo');
+    expect(text).toContain('app/Bar.php');
   });
 });
