@@ -86,7 +86,7 @@ export function handleTableUsage(deps: TableUsageDeps, params: TableUsageParams)
     }
   }
 
-  const usageRows = collectDependentUsage(entityLinks, refRepo, depth, limit, includeTests);
+  const usageRows = collectDependentUsage(entityLinks, refRepo, deps.symbolRepo, depth, limit, includeTests);
   lines.push('');
   lines.push('### Entity-Based Code Touchpoints');
   if (usageRows.length === 0) {
@@ -120,27 +120,55 @@ export function handleTableUsage(deps: TableUsageDeps, params: TableUsageParams)
 function collectDependentUsage(
   entityLinks: SymbolTableLinkRecord[],
   refRepo: NonNullable<TableUsageDeps['refRepo']>,
+  symbolRepo: TableUsageDeps['symbolRepo'],
   depth: number,
   limit: number,
   includeTests: boolean
 ): DependentUsageRow[] {
   const deduped = new Map<string, DependentUsageRow>();
+  const queuedDepths = new Map<number, number>();
+  const queue: Array<{ symbolId: number; depth: number }> = entityLinks.map((entity) => ({
+    symbolId: entity.sourceSymbolId,
+    depth: 0,
+  }));
 
-  for (const entity of entityLinks) {
-    const rows = refRepo.findDependents(entity.sourceSymbolId, depth) as DependentUsageRow[];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const previousDepth = queuedDepths.get(current.symbolId);
+    if (previousDepth !== undefined && previousDepth <= current.depth) {
+      continue;
+    }
+    queuedDepths.set(current.symbolId, current.depth);
+
+    if (current.depth >= depth) continue;
+
+    const rows = refRepo.findDependents(current.symbolId, 1) as DependentUsageRow[];
     for (const row of rows) {
       const sourceQualifiedName = row.source_qualified_name;
       if (!sourceQualifiedName) continue;
 
+      const rowDepth = current.depth + 1;
       const key = [
         sourceQualifiedName,
         row.reference_kind ?? '',
         row.line_number ?? '',
-        row.depth ?? '',
       ].join('|');
 
-      if (!deduped.has(key)) {
-        deduped.set(key, row);
+      const existing = deduped.get(key);
+      if (!existing || (existing.depth ?? Number.MAX_SAFE_INTEGER) > rowDepth) {
+        deduped.set(key, {
+          ...row,
+          depth: rowDepth,
+        });
+      }
+
+      if (rowDepth >= depth || !row.source_symbol_id) continue;
+
+      queue.push({ symbolId: row.source_symbol_id, depth: rowDepth });
+
+      const sourceSymbol = symbolRepo?.findById(row.source_symbol_id);
+      if (sourceSymbol?.parentSymbolId) {
+        queue.push({ symbolId: sourceSymbol.parentSymbolId, depth: rowDepth });
       }
     }
   }
