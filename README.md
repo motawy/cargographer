@@ -153,7 +153,7 @@ Useful options:
 
 Compare one baseline symbol against several peers to spot missing methods, extra methods, and shared behavioral deltas.
 
-This is a symbol-level comparison tool. It now shows shared-method body and wiring diffs, but it does not tell you which files to create. Use `scaffold-plan` for that.
+This is a symbol-level comparison tool. It now shows full inlined shared-method body and wiring diffs, but it does not tell you which files to create. Use `scaffold-plan` for that.
 
 ### `cartograph test-targets --repo-path <path>`
 
@@ -228,7 +228,7 @@ The MCP server currently exposes these tools:
 - `cartograph_dependents` - trace reverse dependencies
 - `cartograph_blast_radius` - show file-level impact
 - `cartograph_compare` - compare two symbols structurally
-- `cartograph_compare_many` - compare one baseline symbol against multiple peers
+- `cartograph_compare_many` - compare one baseline symbol against multiple peers, including full inlined shared-method diffs
 - `cartograph_flow` - follow execution flow from an entry symbol
 
 ### Example MCP Config

@@ -49,7 +49,7 @@ export function generateClaudeMdSection(stats: RepoStats, conventions: Conventio
   lines.push('| `cartograph_blast_radius` | What breaks if this file changes? | `depth`: 1-5 (default 2) |');
   lines.push('| `cartograph_flow` | Trace execution flow from an entrypoint. Follows calls, `::class` refs, and parent class template methods (resolves `$this->getX()` through child overrides). | `depth`: 1-15 (default 5) |');
   lines.push('| `cartograph_compare` | Structural diff: methods in A but not B, **and behavioral diff of shared methods** — flags shared methods with different implementations by inlining both bodies side-by-side. Catches runtime differences like `$this->args[\'jobID\']` vs `$this->args[\'recurringJobID\']`. Shows `::class` wiring targets per method. | `symbolA`, `symbolB`: fully or partially qualified |');
-  lines.push('| `cartograph_compare_many` | Compare one baseline symbol against several peers at once. Shows missing methods, baseline bodies for missing methods, and shared-method wiring/body diffs. Symbol-level comparison only: it does not infer file lists. | `baseline`: reference symbol. `others`: peer symbols |');
+  lines.push('| `cartograph_compare_many` | Compare one baseline symbol against several peers at once. Shows missing methods, baseline bodies for missing methods, and full inlined shared-method wiring/body diffs for methods that already exist on both sides. Symbol-level comparison only: it does not infer file lists. | `baseline`: reference symbol. `others`: peer symbols |');
   lines.push('');
 
   lines.push(`### Tool Limits\n`);

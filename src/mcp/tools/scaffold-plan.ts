@@ -30,6 +30,16 @@ interface PlannedSymbol {
   };
 }
 
+interface RenamePlan {
+  sourceDisplay: string;
+  targetDisplay: string;
+  sourceTokens: string[];
+  replacements: Array<{
+    source: string;
+    target: string;
+  }>;
+}
+
 const STEM_SUFFIXES = [
   'IntegrationTest',
   'APIEntity',
@@ -71,6 +81,40 @@ const LAYER_ORDER = [
   'Other',
 ] as const;
 
+const GENERIC_PATH_SEGMENTS = new Set([
+  'src',
+  'app',
+  'apps',
+  'lib',
+  'libs',
+  'route',
+  'routes',
+  'controller',
+  'controllers',
+  'builder',
+  'builders',
+  'model',
+  'models',
+  'repository',
+  'repositories',
+  'service',
+  'services',
+  'handler',
+  'handlers',
+  'entity',
+  'entities',
+  'dataobject',
+  'dataobjects',
+  'report',
+  'reports',
+  'page',
+  'pages',
+  'test',
+  'tests',
+  'spec',
+  'specs',
+]);
+
 export function handleScaffoldPlan(deps: ScaffoldPlanDeps, params: ScaffoldPlanParams): string {
   const { repoId, symbolRepo, refRepo, fileRepo } = deps;
   if (!fileRepo) {
@@ -91,30 +135,25 @@ export function handleScaffoldPlan(deps: ScaffoldPlanDeps, params: ScaffoldPlanP
     return `No indexed file path found for "${anchor.qualifiedName ?? anchor.name}".`;
   }
 
-  const sourceStem = inferSourceStem(anchor.name);
-  if (!sourceStem) {
+  const renamePlan = inferRenamePlan(anchor, anchorFilePath, params.target);
+  if (!renamePlan) {
     return `Could not infer a renameable stem from "${anchor.name}". Try a Route/Controller/Builder/Model-style class.`;
   }
 
-  const targetStem = inferTargetStem(params.target, sourceStem.suffix);
-  if (!targetStem) {
-    return `Could not infer a target stem from "${params.target}".`;
-  }
-
-  if (normalizeToken(targetStem) === normalizeToken(sourceStem.stem)) {
-    return `Target "${params.target}" resolves to the same stem as the reference (${sourceStem.stem}).`;
+  if (normalizeToken(renamePlan.targetDisplay) === normalizeToken(renamePlan.sourceDisplay)) {
+    return `Target "${params.target}" resolves to the same stem as the reference (${renamePlan.sourceDisplay}).`;
   }
 
   const maxDepth = Math.max(1, Math.min(params.depth ?? 4, 6));
   const filePaths = new Set(fileRepo.listByRepo(repoId).map((file) => file.path));
-  const sources = collectPlanSources(deps, anchor, anchorFilePath, sourceStem.stem, maxDepth);
+  const sources = collectPlanSources(deps, anchor, anchorFilePath, renamePlan, maxDepth);
 
   if (sources.length === 0) {
     return `No renameable slice was inferred from "${anchor.qualifiedName ?? anchor.name}".`;
   }
 
   const planned = sources
-    .map((source) => buildPlannedSymbol(deps, source, filePaths, sourceStem.stem, targetStem))
+    .map((source) => buildPlannedSymbol(deps, source, filePaths, renamePlan))
     .sort(comparePlannedSymbols);
 
   const create = planned.filter((entry) => !entry.existingFilePath);
@@ -122,8 +161,8 @@ export function handleScaffoldPlan(deps: ScaffoldPlanDeps, params: ScaffoldPlanP
 
   const lines: string[] = [];
   lines.push(`## Scaffold Plan: ${anchor.qualifiedName ?? anchor.name}`);
-  lines.push(`- Target stem: ${targetStem}`);
-  lines.push(`- Source stem: ${sourceStem.stem}`);
+  lines.push(`- Target stem: ${renamePlan.targetDisplay}`);
+  lines.push(`- Source stem: ${renamePlan.sourceDisplay}`);
   lines.push(`- Traversal depth: ${maxDepth}`);
   lines.push(`- Reference slice files: ${sources.length}`);
   lines.push(`- Files to create: ${create.length}`);
@@ -156,7 +195,7 @@ function collectPlanSources(
   deps: ScaffoldPlanDeps,
   anchor: SymbolRecord,
   anchorFilePath: string,
-  sourceStem: string,
+  renamePlan: RenamePlan,
   maxDepth: number
 ): Array<{
   symbol: SymbolRecord;
@@ -220,7 +259,7 @@ function collectPlanSources(
         continue;
       }
 
-      if (!isRenameableFamilySymbol(target, targetFilePath, sourceStem)) {
+      if (!isRenameableFamilySymbol(target, targetFilePath, renamePlan)) {
         continue;
       }
 
@@ -252,7 +291,7 @@ function collectPlanSources(
   }
 
   const filtered = [...entries.values()].filter((entry) =>
-    entry.symbol.id === anchor.id || isRenameableFamilySymbol(entry.symbol, entry.filePath, sourceStem)
+    entry.symbol.id === anchor.id || isRenameableFamilySymbol(entry.symbol, entry.filePath, renamePlan)
   );
 
   return filtered;
@@ -268,17 +307,16 @@ function buildPlannedSymbol(
     targets: Map<number, string[]>;
   },
   filePaths: Set<string>,
-  sourceStem: string,
-  targetStem: string
+  renamePlan: RenamePlan
 ): PlannedSymbol {
-  const targetQualifiedName = replaceStem(source.symbol.qualifiedName ?? source.symbol.name, sourceStem, targetStem);
-  const targetFilePath = replaceStem(source.filePath, sourceStem, targetStem);
+  const targetQualifiedName = applyRenamePlan(source.symbol.qualifiedName ?? source.symbol.name, renamePlan);
+  const targetFilePath = applyRenamePlan(source.filePath, renamePlan);
   const existingFilePath = filePaths.has(targetFilePath) ? targetFilePath : null;
   const existingSymbol = deps.symbolRepo.findByQualifiedName(deps.repoId, targetQualifiedName);
 
   const wiresTo = [...source.targets.values()]
     .flat()
-    .map((value) => replaceStem(value, sourceStem, targetStem))
+    .map((value) => applyRenamePlan(value, renamePlan))
     .sort();
 
   const planned: PlannedSymbol = {
@@ -360,25 +398,123 @@ function inferSourceStem(name: string): { stem: string; suffix: string | null } 
   return name ? { stem: name, suffix: null } : null;
 }
 
-function inferTargetStem(value: string, suffix: string | null): string {
-  const leaf = basename(value.replace(/\\/g, '/'), extname(value));
-  if (suffix && leaf.endsWith(suffix) && leaf.length > suffix.length) {
-    return leaf.slice(0, -suffix.length);
+function inferRenamePlan(anchor: SymbolRecord, anchorFilePath: string, targetInput: string): RenamePlan | null {
+  const sourceInfo = inferSourceStem(anchor.name);
+  if (!sourceInfo) {
+    return null;
   }
-  return leaf;
+
+  const targetSegments = splitTargetSegments(targetInput, sourceInfo.suffix);
+  if (targetSegments.length === 0) {
+    return null;
+  }
+
+  const sourceSegments = inferSourceSegments(anchor, anchorFilePath, targetSegments.length, sourceInfo.suffix);
+  if (sourceSegments.length !== targetSegments.length) {
+    return null;
+  }
+
+  return {
+    sourceDisplay: sourceSegments.join('\\'),
+    targetDisplay: targetSegments.join('\\'),
+    sourceTokens: uniqueStrings(sourceSegments),
+    replacements: sourceSegments
+      .map((segment, index) => ({
+        source: segment,
+        target: targetSegments[index]!,
+      }))
+      .filter((entry) => normalizeToken(entry.source) !== normalizeToken(entry.target))
+      .sort((a, b) => b.source.length - a.source.length),
+  };
 }
 
-function isRenameableFamilySymbol(symbol: SymbolRecord, filePath: string, sourceStem: string): boolean {
+function splitTargetSegments(value: string, suffix: string | null): string[] {
+  const rawSegments = value
+    .replace(/\//g, '\\')
+    .split('\\')
+    .map((segment) => basename(segment, extname(segment)).trim())
+    .filter(Boolean);
+
+  if (rawSegments.length === 0) {
+    return [];
+  }
+
+  const lastIndex = rawSegments.length - 1;
+  const last = rawSegments[lastIndex]!;
+  if (suffix && last.endsWith(suffix) && last.length > suffix.length) {
+    rawSegments[lastIndex] = last.slice(0, -suffix.length);
+  }
+
+  return rawSegments;
+}
+
+function inferSourceSegments(
+  anchor: SymbolRecord,
+  anchorFilePath: string,
+  count: number,
+  suffix: string | null
+): string[] {
+  const fromPath = extractSourceSegmentsFromPath(anchorFilePath, count, suffix);
+  if (fromPath.length === count) {
+    return fromPath;
+  }
+
+  const qualifiedSegments = (anchor.qualifiedName ?? anchor.name)
+    .split('\\')
+    .filter(Boolean)
+    .slice(-count)
+    .map((segment, index, segments) =>
+      index === segments.length - 1 ? stripSuffix(segment, suffix) : segment
+    );
+
+  return qualifiedSegments;
+}
+
+function extractSourceSegmentsFromPath(filePath: string, count: number, suffix: string | null): string[] {
+  const parts = filePath.split(/[\\/]/).filter(Boolean);
+  if (parts.length === 0) {
+    return [];
+  }
+
+  const fileStem = basename(parts.pop()!, extname(filePath));
+  const directories = parts.filter((part) => !GENERIC_PATH_SEGMENTS.has(normalizeToken(part)));
+  const candidates = [...directories, fileStem];
+
+  if (candidates.length < count) {
+    return [];
+  }
+
+  const selected = candidates.slice(-count);
+  const lastIndex = selected.length - 1;
+  selected[lastIndex] = stripSuffix(selected[lastIndex]!, suffix);
+  return selected;
+}
+
+function stripSuffix(value: string, suffix: string | null): string {
+  if (suffix && value.endsWith(suffix) && value.length > suffix.length) {
+    return value.slice(0, -suffix.length);
+  }
+  return value;
+}
+
+function isRenameableFamilySymbol(symbol: SymbolRecord, filePath: string, renamePlan: RenamePlan): boolean {
   if (isTestPath(filePath)) {
     return false;
   }
-  return containsStem(symbol.name, sourceStem)
-    || containsStem(symbol.qualifiedName ?? '', sourceStem)
-    || containsStem(basename(filePath, extname(filePath)), sourceStem);
+  return renamePlan.sourceTokens.some((token) =>
+    containsStem(symbol.name, token)
+    || containsStem(symbol.qualifiedName ?? '', token)
+    || containsStem(filePath, token)
+    || containsStem(basename(filePath, extname(filePath)), token)
+  );
 }
 
-function replaceStem(value: string, sourceStem: string, targetStem: string): string {
-  return value.replace(new RegExp(escapeRegExp(sourceStem), 'g'), targetStem);
+function applyRenamePlan(value: string, renamePlan: RenamePlan): string {
+  let result = value;
+  for (const replacement of renamePlan.replacements) {
+    result = result.replace(new RegExp(escapeRegExp(replacement.source), 'g'), replacement.target);
+  }
+  return result;
 }
 
 function containsStem(value: string, sourceStem: string): boolean {

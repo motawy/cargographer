@@ -89,6 +89,7 @@ describe('generateClaudeMdSection', () => {
     expect(result).toContain('ranked suggestions only');
     expect(result).toContain('does not write files');
     expect(result).toContain('does not infer file lists');
+    expect(result).toContain('full inlined shared-method wiring/body diffs');
   });
 
   it('includes cartograph_status guidance', () => {

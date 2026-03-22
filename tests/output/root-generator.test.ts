@@ -129,7 +129,7 @@ describe('generateRoot', () => {
     expect(result).toContain('cartograph_blast_radius');
     expect(result).toContain('cartograph_find');
     expect(result).toContain('cartograph_compare_many');
-    expect(result).toContain('shared-method body and wiring diffs');
+    expect(result).toContain('full inlined shared-method body and wiring diffs');
     expect(result).toContain('Use these before grepping');
   });
 

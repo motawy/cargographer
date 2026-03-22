@@ -230,7 +230,7 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_compare_many ---
   server.tool(
     'cartograph_compare_many',
-    'Compare one baseline symbol against multiple peers to spot missing methods, extra methods, and shared-method wiring/body differences. Symbol-level comparison only: it does not infer file lists to create.',
+    'Compare one baseline symbol against multiple peers to spot missing methods, extra methods, and full inlined shared-method wiring/body differences. Symbol-level comparison only: it does not infer file lists to create.',
     {
       baseline: z.string().describe('Baseline symbol to use as the pattern or reference implementation'),
       others: z.array(z.string()).min(1).max(10).describe('One or more peer symbols to compare against the baseline. Best used for sibling classes in the same pattern family.'),

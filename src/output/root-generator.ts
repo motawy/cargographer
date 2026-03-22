@@ -48,7 +48,7 @@ export function generateRoot(stats: RepoStats, conventions?: ConventionsData): s
   lines.push(`- **cartograph_blast_radius** \`<file>\` — what breaks if this file changes?`);
   lines.push(`- **cartograph_find** \`<query>\` — find symbols across modules by name or pattern`);
   lines.push(`- **cartograph_compare** \`<a> <b>\` — compare two symbols structurally, including short method bodies and wiring targets`);
-  lines.push(`- **cartograph_compare_many** \`<baseline> <others...>\` — compare one symbol against several siblings, including shared-method body and wiring diffs`);
+  lines.push(`- **cartograph_compare_many** \`<baseline> <others...>\` — compare one symbol against several siblings, including full inlined shared-method body and wiring diffs`);
   lines.push(`- **cartograph_flow** \`<entrypoint>\` — trace an execution flow end-to-end\n`);
   lines.push(`Use these before grepping the codebase. They answer in seconds from the pre-built index.\n`);
 
