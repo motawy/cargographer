@@ -58,38 +58,110 @@ export function extractDoctrineMappings(
 
     for (let i = 0; i < body.childCount; i++) {
       const member = body.child(i)!;
-      if (member.type !== 'property_declaration') continue;
+      if (member.type === 'property_declaration') {
+        const propertySymbols = classSymbol.children.filter(
+          (child) =>
+            child.kind === 'property'
+            && child.lineStart === member.startPosition.row + 1
+        );
+        if (propertySymbols.length === 0) continue;
 
-      const propertySymbols = classSymbol.children.filter(
-        (child) =>
-          child.kind === 'property'
-          && child.lineStart === member.startPosition.row + 1
-      );
-      if (propertySymbols.length === 0) continue;
+        const mapping =
+          extractPropertyMappingFromAttributes(member, context)
+          ?? extractPropertyMappingFromDocblock(propertySymbols[0]?.docblock ?? null);
+        if (!mapping) continue;
 
-      const mapping =
-        extractPropertyMappingFromAttributes(member, context)
-        ?? extractPropertyMappingFromDocblock(propertySymbols[0]?.docblock ?? null);
-      if (!mapping) continue;
+        pushColumnLinks(columnLinks, propertySymbols, explicitTableName, normalizedTableName, mapping);
+        continue;
+      }
 
-      for (const propertySymbol of propertySymbols) {
-        columnLinks.push({
-          sourceQualifiedName: propertySymbol.qualifiedName,
-          tableName: explicitTableName,
-          normalizedTableName,
-          columnName: mapping.columnName,
-          normalizedColumnName: normalizeSchemaName(mapping.columnName),
-          referencedColumnName: mapping.referencedColumnName ?? null,
-          normalizedReferencedColumnName: mapping.referencedColumnName
-            ? normalizeSchemaName(mapping.referencedColumnName)
-            : null,
-          linkKind: mapping.kind,
-        });
+      if (member.type === 'method_declaration' && findChild(member, 'name')?.text === '__construct') {
+        const promotedMappings = extractPromotedPropertyMappings(member, classSymbol, context);
+        for (const promoted of promotedMappings) {
+          pushColumnLinks(
+            columnLinks,
+            [promoted.propertySymbol],
+            explicitTableName,
+            normalizedTableName,
+            promoted.mapping
+          );
+        }
       }
     }
   }
 
   return { tableLinks, columnLinks };
+}
+
+function pushColumnLinks(
+  columnLinks: ParsedSymbolColumnLink[],
+  propertySymbols: ParsedSymbol[],
+  tableName: string,
+  normalizedTableName: string,
+  mapping: { columnName: string; referencedColumnName?: string; kind: 'entity_column' | 'entity_join_column' }
+): void {
+  for (const propertySymbol of propertySymbols) {
+    columnLinks.push({
+      sourceQualifiedName: propertySymbol.qualifiedName,
+      tableName,
+      normalizedTableName,
+      columnName: mapping.columnName,
+      normalizedColumnName: normalizeSchemaName(mapping.columnName),
+      referencedColumnName: mapping.referencedColumnName ?? null,
+      normalizedReferencedColumnName: mapping.referencedColumnName
+        ? normalizeSchemaName(mapping.referencedColumnName)
+        : null,
+      linkKind: mapping.kind,
+    });
+  }
+}
+
+function extractPromotedPropertyMappings(
+  constructorNode: SyntaxNode,
+  classSymbol: ParsedSymbol,
+  context: NamespaceContext
+): Array<{
+  propertySymbol: ParsedSymbol;
+  mapping: { columnName: string; referencedColumnName?: string; kind: 'entity_column' | 'entity_join_column' };
+}> {
+  const paramsNode = findChild(constructorNode, 'formal_parameters');
+  if (!paramsNode) return [];
+
+  const mappings: Array<{
+    propertySymbol: ParsedSymbol;
+    mapping: { columnName: string; referencedColumnName?: string; kind: 'entity_column' | 'entity_join_column' };
+  }> = [];
+
+  for (let i = 0; i < paramsNode.childCount; i++) {
+    const param = paramsNode.child(i)!;
+    if (param.type !== 'property_promotion_parameter') continue;
+
+    const propertyName = extractPromotedPropertyName(param);
+    if (!propertyName) continue;
+
+    const propertySymbol = classSymbol.children.find(
+      (child) =>
+        child.kind === 'property'
+        && child.name === propertyName
+        && child.metadata?.promoted === true
+    );
+    if (!propertySymbol) continue;
+
+    const mapping = extractPropertyMappingFromAttributes(param, context);
+    if (!mapping) continue;
+
+    mappings.push({ propertySymbol, mapping });
+  }
+
+  return mappings;
+}
+
+function extractPromotedPropertyName(param: SyntaxNode): string | null {
+  const varNode = findChild(param, 'variable_name');
+  if (!varNode) return null;
+
+  const nameNode = findChild(varNode, 'name');
+  return nameNode?.text ?? varNode.text.replace('$', '') ?? null;
 }
 
 function extractTableNameFromAttributes(

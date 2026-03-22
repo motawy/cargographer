@@ -90,4 +90,57 @@ class RecurringQuote
     expect(result.tableLinks[0]?.tableName).toBe('recurring_quotes');
     expect(result.columnLinks[0]?.columnName).toBe('quote_id');
   });
+
+  it('extracts mappings from constructor promoted properties', () => {
+    const { tree, context, symbols } = parseSource(`<?php
+namespace App\\Entity;
+
+use Doctrine\\ORM\\Mapping as ORM;
+
+#[ORM\\Entity]
+#[ORM\\Table(name: 'recurring_quote_api')]
+class RecurringQuoteApi
+{
+    public function __construct(
+        #[ORM\\Column(name: 'quote_id')]
+        private readonly int $id,
+        #[ORM\\JoinColumn(name: 'customer_id', referencedColumnName: 'id')]
+        private Customer $customer,
+    ) {}
+}
+`);
+
+    const result = extractDoctrineMappings(tree, context, symbols);
+
+    expect(result.tableLinks).toEqual([
+      {
+        sourceQualifiedName: 'App\\Entity\\RecurringQuoteApi',
+        tableName: 'recurring_quote_api',
+        normalizedTableName: 'recurring_quote_api',
+        linkKind: 'entity_table',
+      },
+    ]);
+    expect(result.columnLinks).toEqual([
+      {
+        sourceQualifiedName: 'App\\Entity\\RecurringQuoteApi::$id',
+        tableName: 'recurring_quote_api',
+        normalizedTableName: 'recurring_quote_api',
+        columnName: 'quote_id',
+        normalizedColumnName: 'quote_id',
+        referencedColumnName: null,
+        normalizedReferencedColumnName: null,
+        linkKind: 'entity_column',
+      },
+      {
+        sourceQualifiedName: 'App\\Entity\\RecurringQuoteApi::$customer',
+        tableName: 'recurring_quote_api',
+        normalizedTableName: 'recurring_quote_api',
+        columnName: 'customer_id',
+        normalizedColumnName: 'customer_id',
+        referencedColumnName: 'id',
+        normalizedReferencedColumnName: 'id',
+        linkKind: 'entity_join_column',
+      },
+    ]);
+  });
 });
