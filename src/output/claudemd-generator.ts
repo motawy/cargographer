@@ -20,15 +20,17 @@ export function generateClaudeMdSection(stats: RepoStats, conventions: Conventio
   lines.push(`3. Use \`cartograph_table\` for exact current table shape (columns + inbound/outbound foreign keys)`);
   lines.push(`4. Use \`cartograph_table_graph\` to walk related tables by foreign keys before searching SQL files manually`);
   lines.push(`5. Use \`cartograph_table_usage\` when you need the schema↔code bridge: mapped entities, mapped columns, direct table-name references, and the upstream framework touchpoints above those references`);
-  lines.push(`6. Use \`cartograph_test_targets\` after identifying the code you will touch — provide exactly one of \`symbol\`, \`file\`, or \`table\`; it uses direct test-side imports / instantiations when available, but still returns ranked suggestions rather than an exhaustive list`);
-  lines.push(`7. Use \`cartograph_scaffold_plan\` when cloning an existing endpoint/module shape for a new target — it tells you which files/classes should exist, includes conventional concrete companions for Interface files, and marks which inferred targets already exist but still differ; it does not write files for you`);
-  lines.push(`8. Use \`cartograph_find\` before grepping — it searches the pre-built symbol index and suggests close matches on 0 results`);
-  lines.push(`9. Use \`cartograph_search_content\` when you need method-body or literal-content lookup (for example \`$this->args['recurringJobID']\`)`);
-  lines.push(`10. Use \`cartograph_symbol\` with \`deep: true\` to see the full vertical stack (Route→Controller→Builder→Model) in one call`);
-  lines.push(`11. Use \`cartograph_compare\` for pairwise pattern-copy work — shows what A has that B doesn't, with method bodies and wiring targets inlined`);
-  lines.push(`12. Use \`cartograph_compare_many\` when comparing one reference implementation against several siblings`);
-  lines.push(`13. Use \`cartograph_deps\` to trace forward dependencies — shows which method creates each edge (e.g. "via getControllerName(), line 13")`);
-  lines.push(`14. Use \`cartograph_flow\` to trace execution flow — follows parent class template methods through child overrides\n`);
+  lines.push(`6. Use \`cartograph_column_usage\` for column-level debugging questions like "what sets display_order?" — it scopes the search to files that already touch the table and highlights likely write-like refs`);
+  lines.push(`7. Use \`cartograph_test_targets\` after identifying the code you will touch — provide exactly one of \`symbol\`, \`file\`, or \`table\`; it uses direct test-side imports / instantiations when available, but still returns ranked suggestions rather than an exhaustive list`);
+  lines.push(`8. Use \`cartograph_scaffold_plan\` when cloning an existing endpoint/module shape for a new target — it tells you which files/classes should exist, includes conventional concrete companions for Interface files, and marks which inferred targets already exist but still differ; it does not write files for you`);
+  lines.push(`9. Use \`cartograph_route_pairs\` when auditing nested endpoints against likely flat equivalents. It is best for route-shape inventory work like flat-vs-nested API audits`);
+  lines.push(`10. Use \`cartograph_find\` before grepping — it searches the pre-built symbol index and suggests close matches on 0 results`);
+  lines.push(`11. Use \`cartograph_search_content\` when you need method-body or literal-content lookup (for example \`$this->args['recurringJobID']\`)`);
+  lines.push(`12. Use \`cartograph_symbol\` with \`deep: true\` to see the full vertical stack (Route→Controller→Builder→Model) in one call, including stack context requirements`);
+  lines.push(`13. Use \`cartograph_compare\` for pairwise pattern-copy work — shows what A has that B doesn't, with method bodies and wiring targets inlined`);
+  lines.push(`14. Use \`cartograph_compare_many\` when comparing one reference implementation against several siblings`);
+  lines.push(`15. Use \`cartograph_deps\` to trace forward dependencies — shows which method creates each edge (e.g. "via getControllerName(), line 13")`);
+  lines.push(`16. Use \`cartograph_flow\` to trace execution flow — follows parent class template methods through child overrides\n`);
 
   // Tool reference
   lines.push(`### Available Tools\n`);
@@ -39,11 +41,13 @@ export function generateClaudeMdSection(stats: RepoStats, conventions: Conventio
   lines.push('| `cartograph_table` | Inspect exact current table shape from Cartograph\'s canonical schema layer, including columns and inbound/outbound foreign keys. | `name`: table name |');
   lines.push('| `cartograph_table_graph` | Traverse the foreign-key neighborhood around a table to understand adjacent tables and impact radius. | `name`: table name. `depth`: 1-5 |');
   lines.push('| `cartograph_table_usage` | Bridge schema to code: show Doctrine-style mapped entities, mapped columns, entity-based touchpoints, indexed direct table-name references, and explicit upstream framework touchpoints through table-backed adapters such as Models, Repositories, Builders, and DataObjects. Best for table→API tracing. It may still miss patterns with no explicit entity mapping, symbol reference, or table-name signal. | `name`: table name. `depth`: entity-graph depth. `limit`: max touchpoints. `includeTests`: include tests |');
+  lines.push('| `cartograph_column_usage` | Answer column-level debugging questions by showing mapped properties plus likely write-like literal refs for a column, scoped to files that already touch the table. Write detection is heuristic. | `table`: table name. `column`: column name. `limit`: max refs to scan. `includeTests`: include tests |');
   lines.push('| `cartograph_test_targets` | Suggest likely test files to update or create for a symbol, file, or table using indexed structure, naming heuristics, and direct test-side signals such as imports, instantiations, and class references. Heuristic and ranked, not exhaustive. | Exactly one of `symbol` or `file` or `table`. `limit`: max suggestions |');
   lines.push('| `cartograph_scaffold_plan` | Plan the files and class names needed to mirror a reference slice for a new target stem. Marks which inferred targets already exist, includes conventional concrete companions for Interface files, and summarizes gaps vs the reference. Rename-based planning only: it does not write files and may miss wiring outside the inferred slice. | `reference`: reference symbol. `target`: target stem or class name. `depth`: 1-6 |');
+  lines.push('| `cartograph_route_pairs` | Audit nested routes against likely flat equivalents using route path/resource naming heuristics. Best for flat-vs-nested endpoint inventory work. | `query`: optional text filter. `path`: optional route-path substring. `limit`: max nested families |');
   lines.push('| `cartograph_find` | Search symbols by name (fuzzy, matches anywhere in qualified name). Path filter supports partial/substring matching. Suggests corrections on 0 results. | `kind`: class/method/interface/etc. `path`: substring match on file path (e.g. `"Route/Root/Companies"`) |');
   lines.push('| `cartograph_search_content` | Search indexed source text by literal substring and map matches back to enclosing methods/classes. Use this when grep would normally be required for method-body details. | `query`: literal text. `path`: file-path substring. `limit`: max matches |');
-  lines.push('| `cartograph_symbol` | Look up a class and its relationships. With `deep: true`, shows full vertical stack: inheritance, wiring (which method → which class), concrete implementations, depth-2 wiring detail, and **context requirements** (which `$this->args`/`$this->params` keys the class consumes — answers \"can I reuse this in a different route?\"). | `name`: fully or partially qualified. `deep`: true for full stack view |');
+  lines.push('| `cartograph_symbol` | Look up a class and its relationships. With `deep: true`, shows full vertical stack: inheritance, wiring (which method → which class), concrete implementations, depth-2 wiring detail, and **stack context requirements** (which `$this->args`/`$this->params` keys are consumed across the wired chain — answers \"can I reuse this from a different route?\"). | `name`: fully or partially qualified. `deep`: true for full stack view |');
   lines.push('| `cartograph_deps` | Forward dependency graph. Shows which method creates each edge (e.g. "via getControllerName(), line 13"). Follows `::class` references through method bodies. | `depth`: 1-10 (default 3) |');
   lines.push('| `cartograph_dependents` | Reverse dependency lookup — what depends on this symbol? | `depth`: 1-5 (default 1) |');
   lines.push('| `cartograph_blast_radius` | What breaks if this file changes? | `depth`: 1-5 (default 2) |');
@@ -54,8 +58,10 @@ export function generateClaudeMdSection(stats: RepoStats, conventions: Conventio
 
   lines.push(`### Tool Limits\n`);
   lines.push(`- \`cartograph_table_usage\` is strongest when the repo exposes explicit entity mappings, symbol references, or direct table-name references. It can now climb through table-backed framework adapters, but it is still not a guarantee of complete coverage for purely implicit patterns.`);
+  lines.push(`- \`cartograph_column_usage\` is scoped and heuristic. It is strongest when the table is already connected to code via direct table-name references or Doctrine-style mappings.`);
   lines.push(`- \`cartograph_test_targets\` returns ranked suggestions only. Direct test-side signals improve precision, but you should still treat the output as a shortlist rather than proof of full coverage.`);
   lines.push(`- \`cartograph_scaffold_plan\` is a planning aid, not code generation. It infers analogous files by renaming the reference slice, adds conventional Interface companions, and can still miss registrations, config, or non-pattern wiring outside that slice.`);
+  lines.push(`- \`cartograph_route_pairs\` is heuristic. It infers flat-vs-nested relationships from route path and resource naming, not from runtime routing semantics.`);
   lines.push(`- \`cartograph_compare_many\` compares symbols, not files or directories. Identical methods are omitted by default so the output stays focused on deltas.`);
   lines.push('');
 

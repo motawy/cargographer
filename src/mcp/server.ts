@@ -25,6 +25,8 @@ import { handleSearchContent } from './tools/search-content.js';
 import { handleScaffoldPlan } from './tools/scaffold-plan.js';
 import { handleTableUsage } from './tools/table-usage.js';
 import { handleTestTargets } from './tools/test-targets.js';
+import { handleRoutePairs } from './tools/route-pairs.js';
+import { handleColumnUsage } from './tools/column-usage.js';
 import { getIndexStalenessWarning } from '../utils/index-freshness.js';
 
 interface ServerOptions {
@@ -135,6 +137,19 @@ export function createServer(opts: ServerOptions): McpServer {
     async ({ name, depth, limit, includeTests }) => wrap(() => handleTableUsage(deps, { name, depth, limit, includeTests }))
   );
 
+  // --- cartograph_column_usage ---
+  server.tool(
+    'cartograph_column_usage',
+    'Show mapped entity properties plus likely write-like refs for a specific column, scoped to files that already touch its table. Best for debugging questions like "what sets display_order?". Write detection is heuristic and based on insert/update/set/assignment contexts.',
+    {
+      table: z.string().describe('Table name, optionally schema-qualified.'),
+      column: z.string().describe('Column name on that table.'),
+      limit: z.number().min(1).max(100).optional().describe('Max literal column refs to scan before grouping results (default 15)'),
+      includeTests: z.boolean().optional().describe('Include test files in scoped column refs (default false)'),
+    },
+    async ({ table, column, limit, includeTests }) => wrap(() => handleColumnUsage(deps, { table, column, limit, includeTests }))
+  );
+
   // --- cartograph_test_targets ---
   server.tool(
     'cartograph_test_targets',
@@ -158,6 +173,18 @@ export function createServer(opts: ServerOptions): McpServer {
       depth: z.number().min(1).max(6).optional().describe('Forward traversal depth for collecting the reference slice (default 4). Larger values pull in more neighboring classes.'),
     },
     async ({ reference, target, depth }) => wrap(() => handleScaffoldPlan(deps, { reference, target, depth }))
+  );
+
+  // --- cartograph_route_pairs ---
+  server.tool(
+    'cartograph_route_pairs',
+    'Audit nested route endpoints against likely flat equivalents using route path and resource naming heuristics. Useful for questions like "which nested endpoints already have flat equivalents and which do not?". Results are heuristic, not graph-proof.',
+    {
+      query: z.string().optional().describe('Optional text filter on route names or route paths (for example "CostCenters")'),
+      path: z.string().optional().describe('Optional file-path substring filter to narrow the route area (for example "Route/Root/Companies")'),
+      limit: z.number().min(1).max(100).optional().describe('Max nested route families to show (default 25)'),
+    },
+    async ({ query, path, limit }) => wrap(() => handleRoutePairs(deps, { query, path, limit }))
   );
 
   // --- cartograph_find ---
@@ -188,10 +215,10 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_symbol ---
   server.tool(
     'cartograph_symbol',
-    'Look up a class/interface/function and its relationships. Use deep=true on Route/Controller/Builder classes to see the full vertical stack in one call.',
+    'Look up a class/interface/function and its relationships. Use deep=true on Route/Controller/Builder classes to see the full vertical stack in one call, including aggregated context requirements across the wired stack ($this->args / $this->params keys consumed by downstream classes).',
     {
       name: z.string().describe('Fully or partially qualified symbol name'),
-      deep: z.boolean().optional().describe('Show full vertical stack: inheritance, wiring (class_reference), implementors, and depth-2 wiring detail'),
+      deep: z.boolean().optional().describe('Show full vertical stack: inheritance, wiring (class_reference), implementors, depth-2 wiring detail, and aggregated stack context requirements'),
     },
     async ({ name, deep }) => wrap(() => handleSymbol(deps, stats, { name, deep }))
   );

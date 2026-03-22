@@ -211,11 +211,137 @@ describe('cartograph_symbol', () => {
 
     expect(result).toContain('Context requirements');
     expect(result).toContain('Route args consumed:');
-    expect(result).toContain('jobID (via getReferenceID())');
-    expect(result).toContain('sectionID (via getFilters())');
+    expect(result).toContain('jobID (via App\\Builders\\JobNotesBuilder::getReferenceID())');
+    expect(result).toContain('sectionID (via App\\Builders\\JobNotesBuilder::getFilters())');
     expect(result).toContain('Request params consumed:');
-    expect(result).toContain('page (via getFilters())');
-    expect(result).toContain('limit (via getFilters())');
+    expect(result).toContain('page (via App\\Builders\\JobNotesBuilder::getFilters())');
+    expect(result).toContain('limit (via App\\Builders\\JobNotesBuilder::getFilters())');
+  });
+
+  it('deep mode aggregates context requirements across the wired stack', () => {
+    const repoRepo = new RepoRepository(db);
+    const fileRepo = new FileRepository(db);
+    const symbolRepo = new SymbolRepository(db);
+    const refRepo = new ReferenceRepository(db);
+
+    const repo = repoRepo.findOrCreate('/test/stack-ctx', 'test-stack-ctx');
+    const routeFile = fileRepo.upsert(repo.id, 'route.php', 'php', 'sc1', 20);
+    const controllerFile = fileRepo.upsert(repo.id, 'controller.php', 'php', 'sc2', 20);
+    const builderFile = fileRepo.upsert(repo.id, 'builder.php', 'php', 'sc3', 20);
+
+    const route: ParsedSymbol = {
+      name: 'RecurringJobRoute',
+      qualifiedName: 'App\\Route\\RecurringJobRoute',
+      kind: 'class',
+      visibility: null,
+      lineStart: 1,
+      lineEnd: 20,
+      signature: null,
+      returnType: null,
+      docblock: null,
+      metadata: {},
+      children: [
+        {
+          name: 'getControllerName',
+          qualifiedName: 'App\\Route\\RecurringJobRoute::getControllerName',
+          kind: 'method',
+          visibility: 'public',
+          lineStart: 5,
+          lineEnd: 8,
+          signature: 'getControllerName(): string',
+          returnType: 'string',
+          docblock: null,
+          metadata: {},
+          children: [],
+        },
+      ],
+    };
+    const controller: ParsedSymbol = {
+      name: 'RecurringJobController',
+      qualifiedName: 'App\\Controller\\RecurringJobController',
+      kind: 'class',
+      visibility: null,
+      lineStart: 1,
+      lineEnd: 20,
+      signature: null,
+      returnType: null,
+      docblock: null,
+      metadata: {},
+      children: [
+        {
+          name: 'getBuilderName',
+          qualifiedName: 'App\\Controller\\RecurringJobController::getBuilderName',
+          kind: 'method',
+          visibility: 'public',
+          lineStart: 5,
+          lineEnd: 8,
+          signature: 'getBuilderName(): string',
+          returnType: 'string',
+          docblock: null,
+          metadata: { contextParams: ['page'] },
+          children: [],
+        },
+      ],
+    };
+    const builder: ParsedSymbol = {
+      name: 'RecurringJobBuilder',
+      qualifiedName: 'App\\Builder\\RecurringJobBuilder',
+      kind: 'class',
+      visibility: null,
+      lineStart: 1,
+      lineEnd: 20,
+      signature: null,
+      returnType: null,
+      docblock: null,
+      metadata: {},
+      children: [
+        {
+          name: 'getReferenceID',
+          qualifiedName: 'App\\Builder\\RecurringJobBuilder::getReferenceID',
+          kind: 'method',
+          visibility: 'protected',
+          lineStart: 5,
+          lineEnd: 8,
+          signature: 'getReferenceID(): int',
+          returnType: 'int',
+          docblock: null,
+          metadata: { contextArgs: ['recurringJobID'] },
+          children: [],
+        },
+      ],
+    };
+
+    const routeIds = symbolRepo.replaceFileSymbols(routeFile.id, [route]);
+    const controllerIds = symbolRepo.replaceFileSymbols(controllerFile.id, [controller]);
+    symbolRepo.replaceFileSymbols(builderFile.id, [builder]);
+
+    refRepo.replaceFileReferences(routeFile.id, routeIds, [
+      {
+        sourceQualifiedName: 'App\\Route\\RecurringJobRoute::getControllerName',
+        targetQualifiedName: 'app\\controller\\recurringjobcontroller',
+        kind: 'class_reference',
+        line: 6,
+      },
+    ]);
+    refRepo.replaceFileReferences(controllerFile.id, controllerIds, [
+      {
+        sourceQualifiedName: 'App\\Controller\\RecurringJobController::getBuilderName',
+        targetQualifiedName: 'app\\builder\\recurringjobbuilder',
+        kind: 'class_reference',
+        line: 6,
+      },
+    ]);
+    refRepo.resolveTargets(repo.id);
+
+    const result = handleSymbol(
+      { repoId: repo.id, symbolRepo, refRepo },
+      { totalClasses: 3, classesWithInterface: 0, classesWithBaseClass: 0, classesWithTraits: 0 },
+      { name: 'App\\Route\\RecurringJobRoute', deep: true }
+    );
+
+    expect(result).toContain('Context requirements');
+    expect(result).toContain('recurringJobID (via App\\Builder\\RecurringJobBuilder::getReferenceID())');
+    expect(result).toContain('page (via App\\Controller\\RecurringJobController::getBuilderName())');
   });
 
   it('shows mapped tables when schema links exist for the symbol', () => {

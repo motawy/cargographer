@@ -6,6 +6,13 @@ interface SymbolParams {
   deep?: boolean;
 }
 
+interface ContextRequirementEntry {
+  key: string;
+  method: string;
+  ownerQualifiedName: string;
+  depth: number;
+}
+
 export function handleSymbol(deps: ToolDeps, stats: RepoStats, params: SymbolParams): string {
   const { repoId, symbolRepo, refRepo } = deps;
   const { name } = params;
@@ -58,7 +65,7 @@ export function handleSymbol(deps: ToolDeps, stats: RepoStats, params: SymbolPar
     }
 
     // Deep mode: show full vertical stack for classes
-    if (params.deep && sym.kind === 'class') {
+    if (params.deep && supportsDeepView(sym.kind)) {
       lines.push('');
       appendDeepView(lines, sym.id, forwardDeps, repoId, symbolRepo, refRepo);
     } else {
@@ -175,26 +182,10 @@ function appendDeepView(
     }
   }
 
-  // 5. Context requirements: what route args/params does this class consume?
-  const children = symbolRepo.findChildren(symbolId);
-  const argEntries: { key: string; method: string; }[] = [];
-  const paramEntries: { key: string; method: string; }[] = [];
-
-  for (const child of children) {
-    const meta = child.metadata || {};
-    const contextArgs = meta.contextArgs as string[] | undefined;
-    const contextParams = meta.contextParams as string[] | undefined;
-    if (contextArgs) {
-      for (const key of contextArgs) {
-        argEntries.push({ key, method: child.name });
-      }
-    }
-    if (contextParams) {
-      for (const key of contextParams) {
-        paramEntries.push({ key, method: child.name });
-      }
-    }
-  }
+  // 5. Context requirements across the wired stack.
+  const contextRequirements = collectContextRequirements(symbolId, symbolRepo, refRepo);
+  const argEntries = contextRequirements.args;
+  const paramEntries = contextRequirements.params;
 
   if (argEntries.length > 0 || paramEntries.length > 0) {
     lines.push('');
@@ -202,16 +193,110 @@ function appendDeepView(
     if (argEntries.length > 0) {
       lines.push('Route args consumed:');
       for (const entry of argEntries) {
-        lines.push(`  - ${entry.key} (via ${entry.method}())`);
+        lines.push(`  - ${entry.key} (via ${entry.ownerQualifiedName}::${entry.method}())`);
       }
     }
     if (paramEntries.length > 0) {
       lines.push('Request params consumed:');
       for (const entry of paramEntries) {
-        lines.push(`  - ${entry.key} (via ${entry.method}())`);
+        lines.push(`  - ${entry.key} (via ${entry.ownerQualifiedName}::${entry.method}())`);
       }
     }
   }
+}
+
+function collectContextRequirements(
+  rootSymbolId: number,
+  symbolRepo: ToolDeps['symbolRepo'],
+  refRepo: ToolDeps['refRepo'],
+  maxDepth: number = 4
+): { args: ContextRequirementEntry[]; params: ContextRequirementEntry[] } {
+  const args = new Map<string, ContextRequirementEntry>();
+  const params = new Map<string, ContextRequirementEntry>();
+  const queue: Array<{ symbolId: number; depth: number }> = [{ symbolId: rootSymbolId, depth: 0 }];
+  const visitedDepths = new Map<number, number>();
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const previousDepth = visitedDepths.get(current.symbolId);
+    if (previousDepth !== undefined && previousDepth <= current.depth) {
+      continue;
+    }
+    visitedDepths.set(current.symbolId, current.depth);
+
+    const currentSymbol = symbolRepo.findById(current.symbolId);
+    if (!currentSymbol) continue;
+
+    for (const child of symbolRepo.findChildren(current.symbolId)) {
+      const meta = child.metadata || {};
+      const contextArgs = meta.contextArgs as string[] | undefined;
+      const contextParams = meta.contextParams as string[] | undefined;
+
+      if (contextArgs) {
+        for (const key of contextArgs) {
+          const entryKey = `${key}|${currentSymbol.qualifiedName ?? currentSymbol.name}|${child.name}`;
+          const existing = args.get(entryKey);
+          if (!existing || existing.depth > current.depth) {
+            args.set(entryKey, {
+              key,
+              method: child.name,
+              ownerQualifiedName: currentSymbol.qualifiedName ?? currentSymbol.name,
+              depth: current.depth,
+            });
+          }
+        }
+      }
+
+      if (contextParams) {
+        for (const key of contextParams) {
+          const entryKey = `${key}|${currentSymbol.qualifiedName ?? currentSymbol.name}|${child.name}`;
+          const existing = params.get(entryKey);
+          if (!existing || existing.depth > current.depth) {
+            params.set(entryKey, {
+              key,
+              method: child.name,
+              ownerQualifiedName: currentSymbol.qualifiedName ?? currentSymbol.name,
+              depth: current.depth,
+            });
+          }
+        }
+      }
+    }
+
+    if (current.depth >= maxDepth) {
+      continue;
+    }
+
+    const deps = refRepo.findDependencies(current.symbolId);
+    for (const dep of deps) {
+      if (!dep.targetSymbolId) continue;
+      if (dep.referenceKind !== 'class_reference' && dep.referenceKind !== 'inheritance') continue;
+      queue.push({
+        symbolId: dep.targetSymbolId,
+        depth: current.depth + 1,
+      });
+    }
+  }
+
+  return {
+    args: sortContextEntries([...args.values()]),
+    params: sortContextEntries([...params.values()]),
+  };
+}
+
+function sortContextEntries(entries: ContextRequirementEntry[]): ContextRequirementEntry[] {
+  return entries.sort((a, b) => {
+    if (a.depth !== b.depth) return a.depth - b.depth;
+    if (a.key !== b.key) return a.key.localeCompare(b.key);
+    if (a.ownerQualifiedName !== b.ownerQualifiedName) {
+      return a.ownerQualifiedName.localeCompare(b.ownerQualifiedName);
+    }
+    return a.method.localeCompare(b.method);
+  });
+}
+
+function supportsDeepView(kind: string): boolean {
+  return kind === 'class' || kind === 'interface';
 }
 
 function buildConventionsContext(

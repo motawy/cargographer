@@ -70,7 +70,7 @@ describe('MCP Server Integration', () => {
     ]);
 
     // Create server + in-memory transport for testing
-    const server = createServer({ db, repoId });
+    const server = createServer({ db, repoId, repoPath: '/test/repo' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
     client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -83,17 +83,19 @@ describe('MCP Server Integration', () => {
     db.close();
   });
 
-  it('lists all 16 tools', async () => {
+  it('lists all 18 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map(t => t.name).sort();
     expect(names).toEqual([
       'cartograph_blast_radius',
+      'cartograph_column_usage',
       'cartograph_compare',
       'cartograph_compare_many',
       'cartograph_dependents',
       'cartograph_deps',
       'cartograph_find',
       'cartograph_flow',
+      'cartograph_route_pairs',
       'cartograph_scaffold_plan',
       'cartograph_schema',
       'cartograph_search_content',
@@ -133,6 +135,12 @@ describe('MCP Server Integration', () => {
     expect(text).toContain('App\\Foo');
   });
 
+  it('handles cartograph_column_usage tool call', async () => {
+    const result = await client.callTool({ name: 'cartograph_column_usage', arguments: { table: 'quotes', column: 'id' } });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('## Column Usage: quotes.id');
+  });
+
   it('handles cartograph_test_targets tool call', async () => {
     const result = await client.callTool({ name: 'cartograph_test_targets', arguments: { symbol: 'App\\Foo' } });
     const text = (result.content as { type: string; text: string }[])[0].text;
@@ -145,6 +153,12 @@ describe('MCP Server Integration', () => {
     const text = (result.content as { type: string; text: string }[])[0].text;
     expect(text).toContain('## Scaffold Plan: App\\Foo');
     expect(text).toContain('app/Bar.php');
+  });
+
+  it('handles cartograph_route_pairs tool call', async () => {
+    const result = await client.callTool({ name: 'cartograph_route_pairs', arguments: {} });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('No route endpoint families');
   });
 
   it('prepends a stale-index warning to non-status tool calls', async () => {

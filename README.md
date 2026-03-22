@@ -146,6 +146,17 @@ Useful options:
 - `--limit <n>` to control how many code touchpoints are shown
 - `--include-tests` to include test files in the reported touchpoints and direct references
 
+### `cartograph column-usage <table> <column> --repo-path <path>`
+
+Answer column-level debugging questions by showing mapped entity properties plus likely write-like literal refs for a column, scoped to files that already touch the table.
+
+Write detection is heuristic. It is strongest when the code refers to the table or column explicitly in SQL, query-builder calls, or mapping metadata.
+
+Useful options:
+
+- `--limit <n>` to control how many literal column refs are scanned
+- `--include-tests` to include test files in the scoped refs
+
 ### `cartograph search-content <query> --repo-path <path>`
 
 Search indexed source content by literal substring and map matches back to enclosing symbols.
@@ -188,6 +199,18 @@ Useful options:
 
 - `--depth <n>` to control how far Cartograph walks the reference slice
 
+### `cartograph route-pairs --repo-path <path>`
+
+Audit nested route endpoints against likely flat equivalents using route path and resource naming heuristics.
+
+This is best for inventory questions like "which nested endpoints already have flat equivalents and which do not?". The matches are heuristic, not proof of runtime route equivalence.
+
+Useful options:
+
+- `--query <text>` to filter route families by name or path
+- `--path <fragment>` to restrict the audit to a route area such as `Route/Root/Companies`
+- `--limit <n>` to control how many nested route families are shown
+
 ### `cartograph serve --repo-path <path>`
 
 Start the MCP server for an indexed repo using stdio transport.
@@ -229,11 +252,13 @@ The MCP server currently exposes these tools:
 - `cartograph_table` - inspect current SQL table state, its columns, and foreign key relationships
 - `cartograph_table_graph` - traverse the foreign-key neighborhood around a table
 - `cartograph_table_usage` - bridge a table to mapped entities, mapped columns, direct table-name references, and explicit upstream framework touchpoints
+- `cartograph_column_usage` - show mapped properties plus likely write-like refs for a column, scoped to files that already touch the table
 - `cartograph_test_targets` - suggest likely test files for a symbol, file, or table using direct test-side signals where available (ranked heuristics, not exhaustive)
 - `cartograph_scaffold_plan` - plan the files and class names needed to mirror a reference slice for a new target, including conventional Interface companions (planning only; does not write files)
+- `cartograph_route_pairs` - audit nested routes against likely flat equivalents using route path/resource naming heuristics
 - `cartograph_find` - search symbols by name, kind, and optional path filter
 - `cartograph_search_content` - search method bodies and other indexed source text by literal substring
-- `cartograph_symbol` - inspect a symbol and its relationships
+- `cartograph_symbol` - inspect a symbol and its relationships, including stack context requirements in `deep: true` mode
 - `cartograph_deps` - trace forward dependencies
 - `cartograph_dependents` - trace reverse dependencies
 - `cartograph_blast_radius` - show file-level impact
