@@ -323,7 +323,7 @@ function renderContentMatches(lines: string[], matches: ContentMatch[], includeT
   const productionMatches = matches.filter((match) => !match.isTest).slice(0, includeTests ? matches.length : limit);
   const testMatches = matches.filter((match) => match.isTest);
 
-  renderContentGroup(lines, productionMatches, includeTests ? 'Production' : undefined);
+  renderContentLayerGroups(lines, productionMatches, includeTests);
 
   if (includeTests) {
     renderContentGroup(lines, testMatches, 'Tests');
@@ -345,4 +345,60 @@ function renderContentGroup(lines: string[], matches: ContentMatch[], heading?: 
     lines.push(`- ${owner} — ${match.filePath}:${match.lineNumber}`);
     lines.push(`  ${match.preview}`);
   }
+}
+
+function renderContentLayerGroups(lines: string[], matches: ContentMatch[], includeTests: boolean): void {
+  if (matches.length === 0) return;
+
+  const grouped = new Map<string, ContentMatch[]>();
+  for (const match of matches) {
+    const layer = classifyArchitectureLayer(match.filePath, match.symbolName);
+    const entries = grouped.get(layer) ?? [];
+    entries.push(match);
+    grouped.set(layer, entries);
+  }
+
+  const orderedLayers = CONTENT_LAYER_ORDER.filter((layer) => grouped.has(layer));
+  for (const layer of orderedLayers) {
+    renderContentGroup(lines, grouped.get(layer)!, includeTests ? layer : layer);
+  }
+}
+
+const CONTENT_LAYER_ORDER = [
+  'Route',
+  'Controller',
+  'Builder',
+  'Model',
+  'Repository',
+  'DataObject',
+  'Handler',
+  'Report',
+  'Staff Page',
+  'Legacy Page',
+  'Other',
+] as const;
+
+function classifyArchitectureLayer(filePath: string, symbolName: string | null): string {
+  const path = filePath.toLowerCase();
+  const symbol = (symbolName ?? '').toLowerCase();
+
+  if (matchesLayer(path, symbol, ['routes?', 'route'])) return 'Route';
+  if (matchesLayer(path, symbol, ['controllers?', 'controller'])) return 'Controller';
+  if (matchesLayer(path, symbol, ['builders?', 'builder'])) return 'Builder';
+  if (matchesLayer(path, symbol, ['models?', 'model'])) return 'Model';
+  if (matchesLayer(path, symbol, ['repositories?', 'repository'])) return 'Repository';
+  if (matchesLayer(path, symbol, ['dataobjects?', 'dataobject'])) return 'DataObject';
+  if (matchesLayer(path, symbol, ['handlers?', 'handler'])) return 'Handler';
+  if (matchesLayer(path, symbol, ['reports?', 'report'])) return 'Report';
+  if (/(^|[\\/])staff([\\/]|$)/.test(path)) return 'Staff Page';
+  if (/(^|[\\/])(pages?|legacy)([\\/]|$)/.test(path)) return 'Legacy Page';
+  return 'Other';
+}
+
+function matchesLayer(path: string, symbol: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => {
+    const pathPattern = new RegExp(`(^|[\\\\/])${pattern}([\\\\/]|$)`, 'i');
+    const symbolPattern = new RegExp(`(^|\\\\|::|\\$)${pattern}s?($|\\\\|::)`, 'i');
+    return pathPattern.test(path) || symbolPattern.test(symbol);
+  });
 }

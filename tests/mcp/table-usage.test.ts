@@ -502,4 +502,215 @@ describe('cartograph_table_usage', () => {
       db.close();
     }
   });
+
+  it('groups direct table-name references by architectural layer', () => {
+    const db = openDatabase({ path: ':memory:' });
+    const tmpDir = '/tmp/cartograph-table-usage-layer-test';
+
+    try {
+      mkdirSync(`${tmpDir}/src/Builder`, { recursive: true });
+      mkdirSync(`${tmpDir}/src/Model`, { recursive: true });
+      mkdirSync(`${tmpDir}/reports`, { recursive: true });
+      mkdirSync(`${tmpDir}/staff`, { recursive: true });
+
+      writeFileSync(`${tmpDir}/src/Builder/QuotesBuilder.php`, [
+        '<?php',
+        'namespace App\\Builder;',
+        'class QuotesBuilder {',
+        '    public function load(): string',
+        '    {',
+        '        return "SELECT * FROM quotes";',
+        '    }',
+        '}',
+      ].join('\n'));
+
+      writeFileSync(`${tmpDir}/src/Model/QuotesModel.php`, [
+        '<?php',
+        'namespace App\\Model;',
+        'class QuotesModel {',
+        '    public function getDBTable(): string',
+        '    {',
+        "        return 'quotes';",
+        '    }',
+        '}',
+      ].join('\n'));
+
+      writeFileSync(`${tmpDir}/reports/QuotesReport.php`, [
+        '<?php',
+        'namespace App\\Reports;',
+        'class QuotesReport {',
+        '    public function fetch(): string',
+        '    {',
+        '        return "SELECT * FROM quotes";',
+        '    }',
+        '}',
+      ].join('\n'));
+
+      writeFileSync(`${tmpDir}/staff/QuotesPage.php`, [
+        '<?php',
+        'namespace App\\Staff;',
+        'class QuotesPage {',
+        '    public function render(): string',
+        '    {',
+        '        return "SELECT * FROM quotes";',
+        '    }',
+        '}',
+      ].join('\n'));
+
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const refRepo = new ReferenceRepository(db);
+      const schemaRepo = new DbSchemaRepository(db);
+      const symbolSchemaRepo = new SymbolSchemaRepository(db);
+
+      const repo = repoRepo.findOrCreate(tmpDir, 'layer-groups');
+      const builderFile = fileRepo.upsert(repo.id, 'src/Builder/QuotesBuilder.php', 'php', 'lg1', 8);
+      const modelFile = fileRepo.upsert(repo.id, 'src/Model/QuotesModel.php', 'php', 'lg2', 8);
+      const reportFile = fileRepo.upsert(repo.id, 'reports/QuotesReport.php', 'php', 'lg3', 8);
+      const staffFile = fileRepo.upsert(repo.id, 'staff/QuotesPage.php', 'php', 'lg4', 8);
+
+      symbolRepo.replaceFileSymbols(builderFile.id, [{
+        name: 'QuotesBuilder',
+        qualifiedName: 'App\\Builder\\QuotesBuilder',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [{
+          name: 'load',
+          qualifiedName: 'App\\Builder\\QuotesBuilder::load',
+          kind: 'method',
+          visibility: 'public',
+          lineStart: 4,
+          lineEnd: 7,
+          signature: 'load(): string',
+          returnType: 'string',
+          docblock: null,
+          metadata: {},
+          children: [],
+        }],
+      }]);
+
+      symbolRepo.replaceFileSymbols(modelFile.id, [{
+        name: 'QuotesModel',
+        qualifiedName: 'App\\Model\\QuotesModel',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [{
+          name: 'getDBTable',
+          qualifiedName: 'App\\Model\\QuotesModel::getDBTable',
+          kind: 'method',
+          visibility: 'public',
+          lineStart: 4,
+          lineEnd: 7,
+          signature: 'getDBTable(): string',
+          returnType: 'string',
+          docblock: null,
+          metadata: {},
+          children: [],
+        }],
+      }]);
+
+      symbolRepo.replaceFileSymbols(reportFile.id, [{
+        name: 'QuotesReport',
+        qualifiedName: 'App\\Reports\\QuotesReport',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [{
+          name: 'fetch',
+          qualifiedName: 'App\\Reports\\QuotesReport::fetch',
+          kind: 'method',
+          visibility: 'public',
+          lineStart: 4,
+          lineEnd: 7,
+          signature: 'fetch(): string',
+          returnType: 'string',
+          docblock: null,
+          metadata: {},
+          children: [],
+        }],
+      }]);
+
+      symbolRepo.replaceFileSymbols(staffFile.id, [{
+        name: 'QuotesPage',
+        qualifiedName: 'App\\Staff\\QuotesPage',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 8,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [{
+          name: 'render',
+          qualifiedName: 'App\\Staff\\QuotesPage::render',
+          kind: 'method',
+          visibility: 'public',
+          lineStart: 4,
+          lineEnd: 7,
+          signature: 'render(): string',
+          returnType: 'string',
+          docblock: null,
+          metadata: {},
+          children: [],
+        }],
+      }]);
+
+      schemaRepo.replaceCurrentSchemaFromImport(repo.id, [
+        {
+          name: 'quotes',
+          normalizedName: 'quotes',
+          sourcePath: null,
+          lineStart: null,
+          lineEnd: null,
+          columns: [],
+          foreignKeys: [],
+        },
+      ]);
+
+      const result = handleTableUsage({
+        repoId: repo.id,
+        repoPath: tmpDir,
+        fileRepo,
+        symbolRepo,
+        schemaRepo,
+        symbolSchemaRepo,
+        refRepo,
+      }, {
+        name: 'quotes',
+        limit: 10,
+      });
+
+      expect(result).toContain('#### Builder (1)');
+      expect(result).toContain('App\\Builder\\QuotesBuilder::load');
+      expect(result).toContain('#### Model (1)');
+      expect(result).toContain('App\\Model\\QuotesModel::getDBTable');
+      expect(result).toContain('#### Report (1)');
+      expect(result).toContain('App\\Reports\\QuotesReport::fetch');
+      expect(result).toContain('#### Staff Page (1)');
+      expect(result).toContain('App\\Staff\\QuotesPage::render');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+      db.close();
+    }
+  });
 });
