@@ -153,6 +153,23 @@ export function formatRefHint(refs?: ReferenceRecord[]): string | null {
   return null;
 }
 
+export function formatSharedDifference(
+  entry: SharedComparison,
+  labelA = 'A',
+  labelB = 'B'
+): string {
+  let line = `- **${entry.name}()** differs`;
+  if (entry.wiringDiffers) {
+    line += `\n  ${labelA}: -> ${entry.refHintA || '(none)'}`;
+    line += `\n  ${labelB}: -> ${entry.refHintB || '(none)'}`;
+  }
+  if (entry.bodyDiffers) {
+    line += `\n  ${labelA} (line ${entry.childA.lineStart}):\n  \`\`\`\n  ${entry.bodyA}\n  \`\`\``;
+    line += `\n  ${labelB} (line ${entry.childB.lineStart}):\n  \`\`\`\n  ${entry.bodyB}\n  \`\`\``;
+  }
+  return line;
+}
+
 function loadMethodBodies(
   symbols: SymbolRecord[],
   repoPath: string,

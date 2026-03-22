@@ -217,4 +217,62 @@ describe('cartograph_compare_many', () => {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('shows shared method diff bodies for differing implementations', () => {
+    const repoRepo = new RepoRepository(db);
+    const fileRepo = new FileRepository(db);
+    const symbolRepo = new SymbolRepository(db);
+    const refRepo = new ReferenceRepository(db);
+
+    const tmpDir = '/tmp/cartograph-compare-many-shared-diff-test';
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(`${tmpDir}/baseline.php`, [
+      '<?php',
+      'class BaselineDiff {',
+      '    protected function getReferenceID()',
+      '    {',
+      "        return (int) $this->args['jobID'];",
+      '    }',
+      '}',
+    ].join('\n'));
+    writeFileSync(`${tmpDir}/target.php`, [
+      '<?php',
+      'class TargetDiff {',
+      '    protected function getReferenceID()',
+      '    {',
+      "        return (int) $this->args['recurringJobID'];",
+      '    }',
+      '}',
+    ].join('\n'));
+
+    try {
+      const repo = repoRepo.findOrCreate(tmpDir, 'compare-many-shared-diff');
+      const baselineFile = fileRepo.upsert(repo.id, 'baseline.php', 'php', 'sdm1', 7);
+      const targetFile = fileRepo.upsert(repo.id, 'target.php', 'php', 'sdm2', 7);
+
+      symbolRepo.replaceFileSymbols(baselineFile.id, [
+        makeClassWithMethods('BaselineDiff', 'Test\\BaselineDiff', [
+          { name: 'getReferenceID', line: 3 },
+        ]),
+      ]);
+      symbolRepo.replaceFileSymbols(targetFile.id, [
+        makeClassWithMethods('TargetDiff', 'Test\\TargetDiff', [
+          { name: 'getReferenceID', line: 3 },
+        ]),
+      ]);
+
+      const result = handleCompareMany(
+        { repoId: repo.id, repoPath: tmpDir, symbolRepo, refRepo },
+        { baseline: 'Test\\BaselineDiff', others: ['Test\\TargetDiff'] }
+      );
+
+      expect(result).toContain('Shared method diffs');
+      expect(result).toContain("Baseline (line 3):");
+      expect(result).toContain("$this->args['jobID']");
+      expect(result).toContain("Target (line 3):");
+      expect(result).toContain("$this->args['recurringJobID']");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

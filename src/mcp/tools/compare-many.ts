@@ -1,5 +1,5 @@
 import type { ToolDeps } from '../types.js';
-import { analyzeComparison, formatChild, resolveSymbol } from './compare-shared.js';
+import { analyzeComparison, formatChild, formatSharedDifference, resolveSymbol } from './compare-shared.js';
 
 interface CompareManyParams {
   baseline: string;
@@ -60,6 +60,12 @@ export function handleCompareMany(deps: ToolDeps, params: CompareManyParams): st
     }
     lines.push(`- Extra in target (${extra.length}): ${formatNameList(extra)}`);
     lines.push(`- Shared methods with different implementations (${differing.length}): ${formatNameList(differing)}`);
+    if (analysis.sharedDifferent.length > 0) {
+      lines.push('- Shared method diffs:');
+      for (const entry of analysis.sharedDifferent) {
+        lines.push(indentBlock(formatSharedDifference(entry, 'Baseline', 'Target'), 2));
+      }
+    }
     lines.push('');
   }
 

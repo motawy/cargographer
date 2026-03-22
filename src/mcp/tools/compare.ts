@@ -1,5 +1,5 @@
 import type { ToolDeps } from '../types.js';
-import { analyzeComparison, formatChild, resolveSymbol } from './compare-shared.js';
+import { analyzeComparison, formatChild, formatSharedDifference, resolveSymbol } from './compare-shared.js';
 
 interface CompareParams {
   symbolA: string;
@@ -47,17 +47,7 @@ export function handleCompare(deps: ToolDeps, params: CompareParams): string {
   const sharedIdentical = analysis.sharedIdentical.map((entry) =>
     entry.refHintA ? `- ${entry.name}() \u2192 ${entry.refHintA}` : `- ${entry.name}()`
   );
-  const sharedDifferent = analysis.sharedDifferent.map((entry) => {
-    let line = `- **${entry.name}()** \u26a0 differs`;
-    if (entry.wiringDiffers) {
-      line += `\n  A: \u2192 ${entry.refHintA || '(none)'}\n  B: \u2192 ${entry.refHintB || '(none)'}`;
-    }
-    if (entry.bodyDiffers) {
-      line += `\n  A (line ${entry.childA.lineStart}):\n  \`\`\`\n  ${entry.bodyA}\n  \`\`\``;
-      line += `\n  B (line ${entry.childB.lineStart}):\n  \`\`\`\n  ${entry.bodyB}\n  \`\`\``;
-    }
-    return line;
-  });
+  const sharedDifferent = analysis.sharedDifferent.map((entry) => formatSharedDifference(entry));
 
   if (sharedDifferent.length > 0) {
     lines.push(`### Shared \u2014 different implementations (${sharedDifferent.length}):`);
