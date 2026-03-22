@@ -31,6 +31,7 @@ describe('MCP Server Integration', () => {
     repoId = repo.id;
 
     const f1 = fileRepo.upsert(repoId, 'app/Foo.php', 'php', 'h1', 10);
+    fileRepo.upsert(repoId, 'tests/FooTest.php', 'php', 'h2', 10);
     const sym: ParsedSymbol = {
       name: 'Foo', qualifiedName: 'App\\Foo',
       kind: 'class', visibility: null, lineStart: 1, lineEnd: 10,
@@ -82,7 +83,7 @@ describe('MCP Server Integration', () => {
     db.close();
   });
 
-  it('lists all 14 tools', async () => {
+  it('lists all 15 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map(t => t.name).sort();
     expect(names).toEqual([
@@ -100,6 +101,7 @@ describe('MCP Server Integration', () => {
       'cartograph_table',
       'cartograph_table_graph',
       'cartograph_table_usage',
+      'cartograph_test_targets',
     ]);
   });
 
@@ -128,5 +130,12 @@ describe('MCP Server Integration', () => {
     const text = (result.content as { type: string; text: string }[])[0].text;
     expect(text).toContain('## Table Usage: quotes');
     expect(text).toContain('App\\Foo');
+  });
+
+  it('handles cartograph_test_targets tool call', async () => {
+    const result = await client.callTool({ name: 'cartograph_test_targets', arguments: { symbol: 'App\\Foo' } });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('## Test Targets');
+    expect(text).toContain('tests/FooTest.php');
   });
 });

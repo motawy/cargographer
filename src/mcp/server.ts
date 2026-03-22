@@ -21,6 +21,7 @@ import { handleTable } from './tools/table.js';
 import { handleTableGraph } from './tools/table-graph.js';
 import { handleSearchContent } from './tools/search-content.js';
 import { handleTableUsage } from './tools/table-usage.js';
+import { handleTestTargets } from './tools/test-targets.js';
 
 interface ServerOptions {
   db: Database.Database;
@@ -115,6 +116,19 @@ export function createServer(opts: ServerOptions): McpServer {
       includeTests: z.boolean().optional().describe('Include test code in touchpoints and direct table-name references (default false)'),
     },
     async ({ name, depth, limit, includeTests }) => wrap(() => handleTableUsage(deps, { name, depth, limit, includeTests }))
+  );
+
+  // --- cartograph_test_targets ---
+  server.tool(
+    'cartograph_test_targets',
+    'Suggest likely test files for a symbol, file, or table using indexed structure and naming heuristics.',
+    {
+      symbol: z.string().optional().describe('Symbol to find relevant tests for'),
+      file: z.string().optional().describe('File path relative to repo root'),
+      table: z.string().optional().describe('Database table name'),
+      limit: z.number().min(1).max(25).optional().describe('Max suggested test files (default 10)'),
+    },
+    async ({ symbol, file, table, limit }) => wrap(() => handleTestTargets(deps, { symbol, file, table, limit }))
   );
 
   // --- cartograph_find ---

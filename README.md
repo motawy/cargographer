@@ -153,6 +153,17 @@ Useful options:
 
 Compare one baseline symbol against several peers to spot missing methods, extra methods, and shared behavioral deltas.
 
+### `cartograph test-targets --repo-path <path>`
+
+Suggest likely test files for a symbol, file, or table using indexed structure, naming heuristics, and test-side content matches when available.
+
+Useful options:
+
+- `--symbol <name>` to suggest tests for a symbol
+- `--file <path>` to suggest tests for a file
+- `--table <name>` to suggest tests for a database table
+- `--limit <n>` to control how many suggestions are shown
+
 ### `cartograph serve --repo-path <path>`
 
 Start the MCP server for an indexed repo using stdio transport.
@@ -194,6 +205,7 @@ The MCP server currently exposes these tools:
 - `cartograph_table` - inspect current SQL table state, its columns, and foreign key relationships
 - `cartograph_table_graph` - traverse the foreign-key neighborhood around a table
 - `cartograph_table_usage` - bridge a table to mapped entities, entity-based touchpoints, and direct table-name references
+- `cartograph_test_targets` - suggest likely test files for a symbol, file, or table
 - `cartograph_find` - search symbols by name, kind, and optional path filter
 - `cartograph_search_content` - search method bodies and other indexed source text by literal substring
 - `cartograph_symbol` - inspect a symbol and its relationships
