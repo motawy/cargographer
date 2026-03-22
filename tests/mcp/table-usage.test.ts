@@ -361,6 +361,202 @@ describe('cartograph_table_usage', () => {
     }
   });
 
+  it('climbs through table-backed framework bridge classes to upstream wiring', () => {
+    const db = openDatabase({ path: ':memory:' });
+
+    try {
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const refRepo = new ReferenceRepository(db);
+      const schemaRepo = new DbSchemaRepository(db);
+      const symbolSchemaRepo = new SymbolSchemaRepository(db);
+      const tableReferenceRepo = new TableReferenceRepository(db);
+
+      const repo = repoRepo.findOrCreate('/test/repo-framework-bridge', 'framework-bridge');
+      const entityFile = fileRepo.upsert(repo.id, 'src/Entity/RecurringQuote.php', 'php', 'fb1', 20);
+      const modelFile = fileRepo.upsert(repo.id, 'src/Model/RecurringQuoteModel.php', 'php', 'fb2', 20);
+      const controllerFile = fileRepo.upsert(repo.id, 'src/Controller/RecurringQuoteController.php', 'php', 'fb3', 20);
+      const routeFile = fileRepo.upsert(repo.id, 'src/Route/RecurringQuoteRoute.php', 'php', 'fb4', 20);
+
+      const entity: ParsedSymbol = {
+        name: 'RecurringQuote',
+        qualifiedName: 'App\\Entity\\RecurringQuote',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 20,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [],
+      };
+      const model: ParsedSymbol = {
+        name: 'RecurringQuoteModel',
+        qualifiedName: 'App\\Model\\RecurringQuoteModel',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 20,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'getDBTable',
+            qualifiedName: 'App\\Model\\RecurringQuoteModel::getDBTable',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 5,
+            lineEnd: 8,
+            signature: 'getDBTable(): string',
+            returnType: 'string',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+      const controller: ParsedSymbol = {
+        name: 'RecurringQuoteController',
+        qualifiedName: 'App\\Controller\\RecurringQuoteController',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 20,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'getModelName',
+            qualifiedName: 'App\\Controller\\RecurringQuoteController::getModelName',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 5,
+            lineEnd: 8,
+            signature: 'getModelName(): string',
+            returnType: 'string',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+      const route: ParsedSymbol = {
+        name: 'RecurringQuoteRoute',
+        qualifiedName: 'App\\Route\\RecurringQuoteRoute',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 20,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'getControllerName',
+            qualifiedName: 'App\\Route\\RecurringQuoteRoute::getControllerName',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 5,
+            lineEnd: 8,
+            signature: 'getControllerName(): string',
+            returnType: 'string',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+
+      const entityMap = symbolRepo.replaceFileSymbols(entityFile.id, [entity]);
+      const modelMap = symbolRepo.replaceFileSymbols(modelFile.id, [model]);
+      const controllerMap = symbolRepo.replaceFileSymbols(controllerFile.id, [controller]);
+      const routeMap = symbolRepo.replaceFileSymbols(routeFile.id, [route]);
+
+      symbolSchemaRepo.replaceFileLinks(
+        entityFile.id,
+        entityMap,
+        [
+          {
+            sourceQualifiedName: 'App\\Entity\\RecurringQuote',
+            tableName: 'recurring_quotes',
+            normalizedTableName: 'recurring_quotes',
+            linkKind: 'entity_table',
+          },
+        ],
+        []
+      );
+
+      refRepo.replaceFileReferences(controllerFile.id, controllerMap, [
+        {
+          sourceQualifiedName: 'App\\Controller\\RecurringQuoteController::getModelName',
+          targetQualifiedName: 'app\\model\\recurringquotemodel',
+          kind: 'class_reference',
+          line: 6,
+        },
+      ]);
+      refRepo.replaceFileReferences(routeFile.id, routeMap, [
+        {
+          sourceQualifiedName: 'App\\Route\\RecurringQuoteRoute::getControllerName',
+          targetQualifiedName: 'app\\controller\\recurringquotecontroller',
+          kind: 'class_reference',
+          line: 6,
+        },
+      ]);
+      refRepo.resolveTargets(repo.id);
+
+      tableReferenceRepo.replaceRepoReferences(repo.id, [
+        {
+          sourceFileId: modelFile.id,
+          sourceSymbolId: modelMap.get('App\\Model\\RecurringQuoteModel::getDBTable') ?? null,
+          tableName: 'recurring_quotes',
+          normalizedTableName: 'recurring_quotes',
+          referenceKind: 'quoted_return',
+          lineNumber: 6,
+          preview: "return 'recurring_quotes';",
+        },
+      ]);
+
+      schemaRepo.replaceCurrentSchemaFromImport(repo.id, [
+        {
+          name: 'recurring_quotes',
+          normalizedName: 'recurring_quotes',
+          sourcePath: null,
+          lineStart: null,
+          lineEnd: null,
+          columns: [],
+          foreignKeys: [],
+        },
+      ]);
+
+      const result = handleTableUsage({
+        repoId: repo.id,
+        symbolRepo,
+        refRepo,
+        schemaRepo,
+        symbolSchemaRepo,
+        tableReferenceRepo,
+      }, {
+        name: 'recurring_quotes',
+        depth: 3,
+        limit: 20,
+      });
+
+      expect(result).toContain('App\\Model\\RecurringQuoteModel::getDBTable');
+      expect(result).toContain('App\\Controller\\RecurringQuoteController::getModelName');
+      expect(result).toContain('App\\Route\\RecurringQuoteRoute::getControllerName');
+    } finally {
+      db.close();
+    }
+  });
+
   it('shows direct table-name references and hides tests by default', () => {
     const db = openDatabase({ path: ':memory:' });
     const tmpDir = '/tmp/cartograph-table-usage-direct-test';

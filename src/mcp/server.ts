@@ -112,7 +112,7 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_table_usage ---
   server.tool(
     'cartograph_table_usage',
-    'Bridge schema to code: show mapped entities, mapped columns, entity-based touchpoints, and indexed direct table-name references for a table. Best for table-to-code tracing; may miss patterns with no explicit mapping or table-name signal.',
+    'Bridge schema to code: show mapped entities, mapped columns, entity-based touchpoints, and indexed direct table-name references for a table. It also climbs through table-backed framework adapters such as Models, Repositories, Builders, and DataObjects to surface upstream wiring. Best for table-to-code tracing; may still miss patterns with no explicit mapping, symbol reference, or table-name signal.',
     {
       name: z.string().describe('Table name, optionally schema-qualified. Use the full table name when partial matches are ambiguous.'),
       depth: z.number().min(1).max(5).optional().describe('Transitive entity-graph depth for code touchpoints (default 3)'),

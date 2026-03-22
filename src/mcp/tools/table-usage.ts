@@ -1,4 +1,5 @@
 import { normalizeSchemaName } from '../../db/repositories/db-schema-repository.js';
+import type { SymbolRecord } from '../../db/repositories/symbol-repository.js';
 import type { SymbolColumnLinkRecord, SymbolTableLinkRecord } from '../../db/repositories/symbol-schema-repository.js';
 import type { DirectTableReferenceRecord } from '../../db/repositories/table-reference-repository.js';
 import { scanDirectTableReferences } from '../../indexer/direct-table-reference-scanner.js';
@@ -22,6 +23,17 @@ interface DependentUsageRow {
   reference_kind?: string;
   line_number?: number;
   depth?: number;
+}
+
+interface DirectReferenceMatch extends ContentMatch {
+  sourceSymbolId: number | null;
+  qualifiedName: string | null;
+  referenceKind: string;
+}
+
+interface FrameworkBridgeSeed {
+  symbolId: number;
+  initialDepth: number;
 }
 
 export function handleTableUsage(deps: TableUsageDeps, params: TableUsageParams): string {
@@ -89,7 +101,29 @@ export function handleTableUsage(deps: TableUsageDeps, params: TableUsageParams)
     }
   }
 
-  const usageRows = collectDependentUsage(entityLinks, refRepo, deps.symbolRepo, depth, limit, includeTests);
+  const directReferenceMatches = findDirectTableMentions(
+    deps,
+    table.name,
+    limit,
+    includeTests,
+    entityQualifiedNames,
+    entityFilePaths
+  );
+  const frameworkBridgeSeeds = collectFrameworkBridgeSeeds(
+    directReferenceMatches,
+    deps.symbolRepo,
+    entityQualifiedNames,
+    includeTests
+  );
+  const usageRows = collectDependentUsage(
+    entityLinks,
+    refRepo,
+    deps.symbolRepo,
+    frameworkBridgeSeeds,
+    depth,
+    limit,
+    includeTests
+  );
   lines.push('');
   lines.push('### Entity-Based Code Touchpoints');
   if (usageRows.length === 0) {
@@ -99,15 +133,6 @@ export function handleTableUsage(deps: TableUsageDeps, params: TableUsageParams)
   } else {
     renderDependentRows(lines, usageRows, includeTests, limit);
   }
-
-  const directReferenceMatches = findDirectTableMentions(
-    deps,
-    table.name,
-    limit,
-    includeTests,
-    entityQualifiedNames,
-    entityFilePaths
-  );
 
   lines.push('');
   lines.push('### Direct Table Name References');
@@ -124,6 +149,7 @@ function collectDependentUsage(
   entityLinks: SymbolTableLinkRecord[],
   refRepo: NonNullable<TableUsageDeps['refRepo']>,
   symbolRepo: TableUsageDeps['symbolRepo'],
+  frameworkBridgeSeeds: FrameworkBridgeSeed[],
   depth: number,
   limit: number,
   includeTests: boolean
@@ -134,6 +160,10 @@ function collectDependentUsage(
     symbolId: entity.sourceSymbolId,
     depth: 0,
   }));
+  queue.push(...frameworkBridgeSeeds.map((seed) => ({
+    symbolId: seed.symbolId,
+    depth: seed.initialDepth,
+  })));
 
   while (queue.length > 0) {
     const current = queue.shift()!;
@@ -201,11 +231,11 @@ function findDirectTableMentions(
   includeTests: boolean,
   entityQualifiedNames: Set<string>,
   entityFilePaths: Set<string>
-): ContentMatch[] {
+): DirectReferenceMatch[] {
   const indexedMatches = deps.tableReferenceRepo?.findByTable(deps.repoId, tableName) ?? [];
   if (indexedMatches.length > 0) {
     return dedupeDirectReferenceMatches(
-      indexedMatches.map(toContentMatch),
+      indexedMatches.map(toDirectReferenceMatch),
       limit,
       includeTests,
       entityQualifiedNames,
@@ -224,12 +254,15 @@ function findDirectTableMentions(
     symbolRepo: deps.symbolRepo,
     tableNames: [tableName],
   }).map((match) => ({
+    sourceSymbolId: match.sourceSymbolId,
     filePath: match.filePath,
     lineNumber: match.lineNumber,
+    qualifiedName: match.symbolName,
     symbolName: match.symbolName,
     symbolKind: match.symbolKind,
     preview: match.preview,
     isTest: match.isTest,
+    referenceKind: match.referenceKind,
   }));
 
   return dedupeDirectReferenceMatches(
@@ -242,13 +275,13 @@ function findDirectTableMentions(
 }
 
 function dedupeDirectReferenceMatches(
-  rawMatches: ContentMatch[],
+  rawMatches: DirectReferenceMatch[],
   limit: number,
   includeTests: boolean,
   entityQualifiedNames: Set<string>,
   entityFilePaths: Set<string>
-): ContentMatch[] {
-  const deduped = new Map<string, ContentMatch>();
+): DirectReferenceMatch[] {
+  const deduped = new Map<string, DirectReferenceMatch>();
 
   for (const match of rawMatches) {
     if (entityFilePaths.has(match.filePath) && !match.symbolName) continue;
@@ -270,15 +303,67 @@ function dedupeDirectReferenceMatches(
   });
 }
 
-function toContentMatch(match: DirectTableReferenceRecord): ContentMatch {
+function toDirectReferenceMatch(match: DirectTableReferenceRecord): DirectReferenceMatch {
   return {
+    sourceSymbolId: match.sourceSymbolId,
     filePath: match.filePath,
     lineNumber: match.lineNumber,
+    qualifiedName: match.qualifiedName ?? match.symbolName,
     symbolName: match.qualifiedName ?? match.symbolName,
     symbolKind: match.symbolKind,
     preview: match.preview,
     isTest: isTestPath(match.filePath),
+    referenceKind: match.referenceKind,
   };
+}
+
+function collectFrameworkBridgeSeeds(
+  directReferenceMatches: DirectReferenceMatch[],
+  symbolRepo: TableUsageDeps['symbolRepo'],
+  entityQualifiedNames: Set<string>,
+  includeTests: boolean
+): FrameworkBridgeSeed[] {
+  if (!symbolRepo) {
+    return [];
+  }
+
+  const seeds = new Map<number, FrameworkBridgeSeed>();
+  for (const match of directReferenceMatches) {
+    if (!includeTests && match.isTest) continue;
+    if (!match.sourceSymbolId) continue;
+
+    const owner = resolveBridgeOwnerSymbol(symbolRepo, match.sourceSymbolId);
+    if (!owner?.qualifiedName) continue;
+    if (isMappedEntitySymbol(owner.qualifiedName, entityQualifiedNames)) continue;
+
+    const layer = classifyArchitectureLayer(match.filePath, owner.qualifiedName);
+    if (!FRAMEWORK_BRIDGE_LAYERS.has(layer)) continue;
+
+    const existing = seeds.get(owner.id);
+    if (!existing || existing.initialDepth > 1) {
+      seeds.set(owner.id, {
+        symbolId: owner.id,
+        initialDepth: 1,
+      });
+    }
+  }
+
+  return [...seeds.values()];
+}
+
+function resolveBridgeOwnerSymbol(
+  symbolRepo: NonNullable<TableUsageDeps['symbolRepo']>,
+  symbolId: number
+): SymbolRecord | null {
+  let current = symbolRepo.findById(symbolId);
+  while (current?.parentSymbolId) {
+    const parent = symbolRepo.findById(current.parentSymbolId);
+    if (!parent) {
+      break;
+    }
+    current = parent;
+  }
+  return current;
 }
 
 function isMappedEntitySymbol(symbolName: string, entityQualifiedNames: Set<string>): boolean {
@@ -374,6 +459,16 @@ const CONTENT_LAYER_ORDER = [
   'Legacy Page',
   'Other',
 ] as const;
+
+const FRAMEWORK_BRIDGE_LAYERS = new Set([
+  'Route',
+  'Controller',
+  'Builder',
+  'Model',
+  'Repository',
+  'DataObject',
+  'Handler',
+]);
 
 function classifyArchitectureLayer(filePath: string, symbolName: string | null): string {
   const path = filePath.toLowerCase();
