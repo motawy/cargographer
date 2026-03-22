@@ -112,7 +112,7 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_table_usage ---
   server.tool(
     'cartograph_table_usage',
-    'Bridge schema to code: show mapped entities, mapped columns, entity-based touchpoints, and indexed direct table-name references for a table. It also climbs through table-backed framework adapters such as Models, Repositories, Builders, and DataObjects to surface upstream wiring. Best for table-to-code tracing; may still miss patterns with no explicit mapping, symbol reference, or table-name signal.',
+    'Bridge schema to code: show mapped entities, mapped columns, entity-based touchpoints, indexed direct table-name references, and an explicit upstream framework-wiring section for a table. It climbs through table-backed adapters such as Models, Repositories, Builders, and DataObjects to surface controllers/routes above them. Best for table-to-code tracing; may still miss patterns with no explicit mapping, symbol reference, or table-name signal.',
     {
       name: z.string().describe('Table name, optionally schema-qualified. Use the full table name when partial matches are ambiguous.'),
       depth: z.number().min(1).max(5).optional().describe('Transitive entity-graph depth for code touchpoints (default 3)'),
@@ -125,7 +125,7 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_test_targets ---
   server.tool(
     'cartograph_test_targets',
-    'Suggest likely test files for a symbol, file, or table using indexed structure, naming heuristics, and direct test-side matches. Provide exactly one of symbol/file/table. Results are ranked suggestions, not an exhaustive list.',
+    'Suggest likely test files for a symbol, file, or table using indexed structure, naming heuristics, and direct test-side signals such as imports, instantiations, and class references. Provide exactly one of symbol/file/table. Results are ranked suggestions, not an exhaustive list.',
     {
       symbol: z.string().optional().describe('Symbol to find relevant tests for. Mutually exclusive with file and table.'),
       file: z.string().optional().describe('File path relative to repo root. Mutually exclusive with symbol and table.'),
@@ -138,7 +138,7 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_scaffold_plan ---
   server.tool(
     'cartograph_scaffold_plan',
-    'Plan the files and class names needed to mirror a reference slice for a new target stem. Rename-based planning only: it does not write files and may miss framework/config wiring outside the indexed slice.',
+    'Plan the files and class names needed to mirror a reference slice for a new target stem. Also infers conventional concrete companions for Interface files when that pattern exists. Rename-based planning only: it does not write files and may miss framework/config wiring outside the indexed slice.',
     {
       reference: z.string().describe('Reference top-level symbol to mirror, usually a Route/Controller/Builder/Model-style class'),
       target: z.string().describe('Target stem or class-family name to substitute into the inferred slice'),
@@ -219,23 +219,25 @@ export function createServer(opts: ServerOptions): McpServer {
   // --- cartograph_compare ---
   server.tool(
     'cartograph_compare',
-    'Compare two symbols and show the structural delta — what methods/properties one has that the other doesn\'t',
+    'Compare two symbols and show the structural delta — what methods/properties one has that the other doesn\'t, plus behavioral diffs in shared methods.',
     {
       symbolA: z.string().describe('First symbol name (fully or partially qualified)'),
       symbolB: z.string().describe('Second symbol name (fully or partially qualified)'),
+      omitIdentical: z.boolean().optional().describe('Hide the "Shared — identical" section to focus only on deltas (default false)'),
     },
-    async ({ symbolA, symbolB }) => wrap(() => handleCompare(deps, { symbolA, symbolB }))
+    async ({ symbolA, symbolB, omitIdentical }) => wrap(() => handleCompare(deps, { symbolA, symbolB, omitIdentical }))
   );
 
   // --- cartograph_compare_many ---
   server.tool(
     'cartograph_compare_many',
-    'Compare one baseline symbol against multiple peers to spot missing methods, extra methods, and full inlined shared-method wiring/body differences. Symbol-level comparison only: it does not infer file lists to create.',
+    'Compare one baseline symbol against multiple peers to spot missing methods, extra methods, and full inlined shared-method wiring/body differences. Identical shared methods are omitted by default. Symbol-level comparison only: it does not infer file lists to create.',
     {
       baseline: z.string().describe('Baseline symbol to use as the pattern or reference implementation'),
       others: z.array(z.string()).min(1).max(10).describe('One or more peer symbols to compare against the baseline. Best used for sibling classes in the same pattern family.'),
+      includeIdentical: z.boolean().optional().describe('Include a summary of identical shared methods (default false)'),
     },
-    async ({ baseline, others }) => wrap(() => handleCompareMany(deps, { baseline, others }))
+    async ({ baseline, others, includeIdentical }) => wrap(() => handleCompareMany(deps, { baseline, others, includeIdentical }))
   );
 
   // --- cartograph_flow ---

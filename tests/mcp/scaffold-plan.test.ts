@@ -329,10 +329,98 @@ describe('cartograph_scaffold_plan', () => {
       expect(result).not.toContain('resolves to the same stem');
       expect(result).toContain('Target stem: RecurringJobCostCenters\\Assets');
       expect(result).toContain('Source stem: JobCostCenters\\Assets');
+      expect(result).toContain('src/Builder/RecurringJobCostCenters/Assets.php');
       expect(result).toContain('src/Builder/RecurringJobCostCenters/AssetsInterface.php');
       expect(result).toContain('src/Controller/RecurringJobCostCenters/AssetsController.php');
       expect(result).toContain('src/Model/RecurringJobCostCenters/AssetsModel.php');
       expect(result).toContain('wire to: via getControllerName() -> App\\Controller\\RecurringJobCostCenters\\AssetsController');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('includes conventional concrete companions for interface files', () => {
+    const db = openDatabase({ path: ':memory:' });
+
+    try {
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const refRepo = new ReferenceRepository(db);
+
+      const repo = repoRepo.findOrCreate('/test/repo-interface-plan', 'interface-plan');
+      const interfaceFile = fileRepo.upsert(repo.id, 'src/Route/JobNotesInterface.php', 'php', 'cp1', 10);
+      const controllerFile = fileRepo.upsert(repo.id, 'src/Controller/JobNotesController.php', 'php', 'cp2', 10);
+
+      const routeInterface: ParsedSymbol = {
+        name: 'JobNotesInterface',
+        qualifiedName: 'App\\Route\\JobNotesInterface',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 10,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [
+          {
+            name: 'getControllerName',
+            qualifiedName: 'App\\Route\\JobNotesInterface::getControllerName',
+            kind: 'method',
+            visibility: 'public',
+            lineStart: 4,
+            lineEnd: 6,
+            signature: 'getControllerName(): string',
+            returnType: 'string',
+            docblock: null,
+            metadata: {},
+            children: [],
+          },
+        ],
+      };
+      const controller: ParsedSymbol = {
+        name: 'JobNotesController',
+        qualifiedName: 'App\\Controller\\JobNotesController',
+        kind: 'class',
+        visibility: null,
+        lineStart: 1,
+        lineEnd: 10,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [],
+      };
+
+      const interfaceMap = symbolRepo.replaceFileSymbols(interfaceFile.id, [routeInterface]);
+      symbolRepo.replaceFileSymbols(controllerFile.id, [controller]);
+
+      refRepo.replaceFileReferences(interfaceFile.id, interfaceMap, [
+        {
+          sourceQualifiedName: 'App\\Route\\JobNotesInterface::getControllerName',
+          targetQualifiedName: 'app\\controller\\jobnotescontroller',
+          kind: 'class_reference',
+          line: 5,
+        },
+      ]);
+      refRepo.resolveTargets(repo.id);
+
+      const result = handleScaffoldPlan({
+        repoId: repo.id,
+        fileRepo,
+        symbolRepo,
+        refRepo,
+      }, {
+        reference: 'App\\Route\\JobNotesInterface',
+        target: 'RecurringJobNotes',
+        depth: 3,
+      });
+
+      expect(result).toContain('src/Route/RecurringJobNotesInterface.php');
+      expect(result).toContain('src/Route/RecurringJobNotes.php');
+      expect(result).toContain('pattern: inferred concrete companion for interface file');
     } finally {
       db.close();
     }

@@ -132,7 +132,7 @@ Import current schema directly from PostgreSQL into Cartograph's canonical schem
 
 ### `cartograph table-usage <table> --repo-path <path>`
 
-Bridge schema to code by showing mapped entities, mapped columns, entity-based touchpoints, direct table-name references in source files, and upstream framework wiring through table-backed adapters such as Models, Repositories, Builders, and DataObjects.
+Bridge schema to code by showing mapped entities, mapped columns, entity-based touchpoints, direct table-name references in source files, and an explicit upstream framework-touchpoint section above table-backed adapters such as Models, Repositories, Builders, and DataObjects.
 
 Useful options:
 
@@ -146,18 +146,22 @@ Search indexed source content by literal substring and map matches back to enclo
 
 Useful options:
 
-- `--path <fragment>` to restrict the search to matching file paths
+- `--path <fragment>` to restrict the search to matching file paths (substring match, not prefix-only)
 - `--limit <n>` to control how many matches are shown
 
 ### `cartograph compare-many <baseline> <others...> --repo-path <path>`
 
 Compare one baseline symbol against several peers to spot missing methods, extra methods, and shared behavioral deltas.
 
-This is a symbol-level comparison tool. It now shows full inlined shared-method body and wiring diffs, but it does not tell you which files to create. Use `scaffold-plan` for that.
+This is a symbol-level comparison tool. It shows baseline bodies for missing methods and full inlined shared-method body and wiring diffs for differing methods. Identical shared methods are omitted by default so the output stays focused on deltas. It does not tell you which files to create; use `scaffold-plan` for that.
+
+Useful options:
+
+- `--include-identical` to include identical shared methods in the per-target summary
 
 ### `cartograph test-targets --repo-path <path>`
 
-Suggest likely test files for a symbol, file, or table using indexed structure, naming heuristics, and test-side content matches when available.
+Suggest likely test files for a symbol, file, or table using indexed structure, naming heuristics, and direct test-side signals such as imports, instantiations, and class references when available.
 
 Provide exactly one of `--symbol`, `--file`, or `--table`. Results are heuristic and ranked, not exhaustive.
 
@@ -172,7 +176,7 @@ Useful options:
 
 Plan the files and class names needed to mirror a reference slice for a new target stem.
 
-This is a planning tool only. It infers analogous files by renaming the reference slice and can summarize gaps for target files that already exist, but it does not write files or guarantee config/registration wiring outside that slice.
+This is a planning tool only. It infers analogous files by renaming the reference slice, includes conventional concrete companions for `*Interface` files, and can summarize gaps for target files that already exist, but it does not write files or guarantee config/registration wiring outside that slice.
 
 Useful options:
 
@@ -218,17 +222,17 @@ The MCP server currently exposes these tools:
 - `cartograph_schema` - list or search current database tables
 - `cartograph_table` - inspect current SQL table state, its columns, and foreign key relationships
 - `cartograph_table_graph` - traverse the foreign-key neighborhood around a table
-- `cartograph_table_usage` - bridge a table to mapped entities, mapped columns, entity-based touchpoints, direct table-name references, and upstream framework wiring
-- `cartograph_test_targets` - suggest likely test files for a symbol, file, or table (ranked heuristics, not exhaustive)
-- `cartograph_scaffold_plan` - plan the files and class names needed to mirror a reference slice for a new target (planning only; does not write files)
+- `cartograph_table_usage` - bridge a table to mapped entities, mapped columns, direct table-name references, and explicit upstream framework touchpoints
+- `cartograph_test_targets` - suggest likely test files for a symbol, file, or table using direct test-side signals where available (ranked heuristics, not exhaustive)
+- `cartograph_scaffold_plan` - plan the files and class names needed to mirror a reference slice for a new target, including conventional Interface companions (planning only; does not write files)
 - `cartograph_find` - search symbols by name, kind, and optional path filter
 - `cartograph_search_content` - search method bodies and other indexed source text by literal substring
 - `cartograph_symbol` - inspect a symbol and its relationships
 - `cartograph_deps` - trace forward dependencies
 - `cartograph_dependents` - trace reverse dependencies
 - `cartograph_blast_radius` - show file-level impact
-- `cartograph_compare` - compare two symbols structurally
-- `cartograph_compare_many` - compare one baseline symbol against multiple peers, including full inlined shared-method diffs
+- `cartograph_compare` - compare two symbols structurally, with an option to hide identical shared methods
+- `cartograph_compare_many` - compare one baseline symbol against multiple peers, including full inlined shared-method diffs while omitting identical methods by default
 - `cartograph_flow` - follow execution flow from an entry symbol
 
 ### Example MCP Config

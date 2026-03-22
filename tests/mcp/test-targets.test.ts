@@ -304,4 +304,85 @@ describe('cartograph_test_targets', () => {
       db.close();
     }
   });
+
+  it('detects direct test-side imports and instantiations from file content', () => {
+    const db = openDatabase({ path: ':memory:' });
+    const tmpDir = '/tmp/cartograph-test-targets-content-test';
+
+    try {
+      mkdirSync(`${tmpDir}/src/RestApi/Route`, { recursive: true });
+      mkdirSync(`${tmpDir}/tests/RestApi/Route`, { recursive: true });
+      mkdirSync(`${tmpDir}/tests/RestApi/Builder`, { recursive: true });
+
+      writeFileSync(`${tmpDir}/src/RestApi/Route/RecurringJobCostCentersInterface.php`, [
+        '<?php',
+        'namespace App\\RestApi\\Route;',
+        'class RecurringJobCostCentersInterface {}',
+      ].join('\n'));
+      writeFileSync(`${tmpDir}/tests/RestApi/Route/RecurringJobCostCentersInterfaceTest.php`, [
+        '<?php',
+        'namespace Tests\\RestApi\\Route;',
+        'use App\\RestApi\\Route\\RecurringJobCostCentersInterface;',
+        'class RecurringJobCostCentersInterfaceTest {',
+        '    public function testBuildsRoute(): void',
+        '    {',
+        '        $route = new RecurringJobCostCentersInterface();',
+        '        self::assertInstanceOf(RecurringJobCostCentersInterface::class, $route);',
+        '    }',
+        '}',
+      ].join('\n'));
+      writeFileSync(`${tmpDir}/tests/RestApi/Builder/RecurringJobCostCentersAssetsBuilderTest.php`, [
+        '<?php',
+        'namespace Tests\\RestApi\\Builder;',
+        'class RecurringJobCostCentersAssetsBuilderTest {}',
+      ].join('\n'));
+
+      runMigrations(db);
+      const repoRepo = new RepoRepository(db);
+      const fileRepo = new FileRepository(db);
+      const symbolRepo = new SymbolRepository(db);
+      const refRepo = new ReferenceRepository(db);
+
+      const repo = repoRepo.findOrCreate(tmpDir, 'targets-content');
+      const routeFile = fileRepo.upsert(repo.id, 'src/RestApi/Route/RecurringJobCostCentersInterface.php', 'php', 'ttc1', 3);
+      fileRepo.upsert(repo.id, 'tests/RestApi/Route/RecurringJobCostCentersInterfaceTest.php', 'php', 'ttc2', 10);
+      fileRepo.upsert(repo.id, 'tests/RestApi/Builder/RecurringJobCostCentersAssetsBuilderTest.php', 'php', 'ttc3', 3);
+
+      symbolRepo.replaceFileSymbols(routeFile.id, [{
+        name: 'RecurringJobCostCentersInterface',
+        qualifiedName: 'App\\RestApi\\Route\\RecurringJobCostCentersInterface',
+        kind: 'class',
+        visibility: null,
+        lineStart: 3,
+        lineEnd: 3,
+        signature: null,
+        returnType: null,
+        docblock: null,
+        metadata: {},
+        children: [],
+      }]);
+
+      const result = handleTestTargets({
+        repoId: repo.id,
+        repoPath: tmpDir,
+        fileRepo,
+        symbolRepo,
+        refRepo,
+      }, {
+        symbol: 'App\\RestApi\\Route\\RecurringJobCostCentersInterface',
+        limit: 5,
+      });
+
+      expect(result).toContain('tests/RestApi/Route/RecurringJobCostCentersInterfaceTest.php');
+      const routeIndex = result.indexOf('tests/RestApi/Route/RecurringJobCostCentersInterfaceTest.php');
+      const builderIndex = result.indexOf('tests/RestApi/Builder/RecurringJobCostCentersAssetsBuilderTest.php');
+      if (builderIndex !== -1) {
+        expect(routeIndex).toBeLessThan(builderIndex);
+      }
+      expect(result).toContain('imports App\\RestApi\\Route\\RecurringJobCostCentersInterface');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+      db.close();
+    }
+  });
 });

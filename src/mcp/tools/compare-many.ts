@@ -4,6 +4,7 @@ import { analyzeComparison, formatChild, formatSharedDifference, resolveSymbol }
 interface CompareManyParams {
   baseline: string;
   others: string[];
+  includeIdentical?: boolean;
 }
 
 export function handleCompareMany(deps: ToolDeps, params: CompareManyParams): string {
@@ -14,6 +15,7 @@ export function handleCompareMany(deps: ToolDeps, params: CompareManyParams): st
   }
 
   const targetNames = [...new Set(params.others.map((name) => name.trim()).filter(Boolean))];
+  const includeIdentical = params.includeIdentical ?? false;
   if (targetNames.length === 0) {
     return 'No comparison targets were provided.';
   }
@@ -60,6 +62,10 @@ export function handleCompareMany(deps: ToolDeps, params: CompareManyParams): st
     }
     lines.push(`- Extra in target (${extra.length}): ${formatNameList(extra)}`);
     lines.push(`- Shared methods with different implementations (${differing.length}): ${formatNameList(differing)}`);
+    if (includeIdentical) {
+      const identical = analysis.sharedIdentical.map((entry) => entry.name);
+      lines.push(`- Shared identical methods (${identical.length}): ${formatNameList(identical)}`);
+    }
     if (analysis.sharedDifferent.length > 0) {
       lines.push('- Shared method diffs:');
       for (const entry of analysis.sharedDifferent) {

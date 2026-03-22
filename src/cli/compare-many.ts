@@ -12,7 +12,8 @@ export function renderCompareManyForRepo(
   db: Database.Database,
   repoPath: string,
   baseline: string,
-  others: string[]
+  others: string[],
+  includeIdentical?: boolean
 ): string {
   const absoluteRepoPath = resolve(repoPath);
   const repo = new RepoRepository(db).findByPath(absoluteRepoPath);
@@ -26,7 +27,7 @@ export function renderCompareManyForRepo(
     repoPath: absoluteRepoPath,
     symbolRepo: new SymbolRepository(db),
     refRepo: new ReferenceRepository(db),
-  }, { baseline, others });
+  }, { baseline, others, includeIdentical });
 }
 
 export function createCompareManyCommand(): Command {
@@ -35,12 +36,13 @@ export function createCompareManyCommand(): Command {
     .argument('<baseline>', 'Baseline symbol')
     .argument('<others...>', 'One or more symbols to compare against the baseline')
     .option('--repo-path <path>', 'Repository path', '.')
-    .action((baseline: string, others: string[], opts: { repoPath: string }) => {
+    .option('--include-identical', 'Include methods that are identical across the compared symbols')
+    .action((baseline: string, others: string[], opts: { repoPath: string; includeIdentical?: boolean }) => {
       const config = loadConfig(opts.repoPath);
       const db = openDatabase(config.database);
 
       try {
-        console.log(renderCompareManyForRepo(db, opts.repoPath, baseline, others));
+        console.log(renderCompareManyForRepo(db, opts.repoPath, baseline, others, opts.includeIdentical));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(message);

@@ -19,6 +19,7 @@ interface PlannedSymbol {
   targetFilePath: string;
   depth: number;
   layer: string;
+  planKind?: 'slice' | 'concrete_companion';
   reasons: string[];
   wiresTo: string[];
   existingSymbol: SymbolRecord | null;
@@ -152,8 +153,11 @@ export function handleScaffoldPlan(deps: ScaffoldPlanDeps, params: ScaffoldPlanP
     return `No renameable slice was inferred from "${anchor.qualifiedName ?? anchor.name}".`;
   }
 
-  const planned = sources
-    .map((source) => buildPlannedSymbol(deps, source, filePaths, renamePlan))
+  const planned = expandConcreteCompanions(
+    deps,
+    sources.map((source) => buildPlannedSymbol(deps, source, filePaths, renamePlan)),
+    filePaths
+  )
     .sort(comparePlannedSymbols);
 
   const create = planned.filter((entry) => !entry.existingFilePath);
@@ -326,6 +330,7 @@ function buildPlannedSymbol(
     targetFilePath,
     depth: source.depth,
     layer: classifyLayer(source.symbol.name, source.filePath),
+    planKind: 'slice',
     reasons: source.reasons,
     wiresTo,
     existingSymbol,
@@ -352,6 +357,9 @@ function renderPlannedSymbol(lines: string[], entry: PlannedSymbol): void {
 
   const detailLines: string[] = [];
   detailLines.push(`source: ${entry.sourceFilePath}`);
+  if (entry.planKind === 'concrete_companion') {
+    detailLines.push('pattern: inferred concrete companion for interface file');
+  }
   if (entry.depth > 0) {
     detailLines.push(`depth: ${entry.depth}`);
   }
@@ -535,6 +543,93 @@ function classifyLayer(symbolName: string, filePath: string): string {
     }
   }
   return 'Other';
+}
+
+function expandConcreteCompanions(
+  deps: ScaffoldPlanDeps,
+  entries: PlannedSymbol[],
+  filePaths: Set<string>
+): PlannedSymbol[] {
+  const expanded = new Map<string, PlannedSymbol>();
+  for (const entry of entries) {
+    expanded.set(entry.targetFilePath, entry);
+  }
+
+  for (const entry of entries) {
+    const companion = buildConcreteCompanionPlan(deps, entry, filePaths);
+    if (!companion) continue;
+    if (!expanded.has(companion.targetFilePath)) {
+      expanded.set(companion.targetFilePath, companion);
+    }
+  }
+
+  return [...expanded.values()];
+}
+
+function buildConcreteCompanionPlan(
+  deps: ScaffoldPlanDeps,
+  entry: PlannedSymbol,
+  filePaths: Set<string>
+): PlannedSymbol | null {
+  if (!entry.sourceSymbol.name.endsWith('Interface')) {
+    return null;
+  }
+
+  const sourceConcreteQualifiedName = removeLeafInterfaceSuffix(entry.sourceSymbol.qualifiedName ?? entry.sourceSymbol.name);
+  const targetConcreteQualifiedName = removeLeafInterfaceSuffix(entry.targetQualifiedName);
+  const sourceConcreteFilePath = removeInterfaceFileSuffix(entry.sourceFilePath);
+  const targetConcreteFilePath = removeInterfaceFileSuffix(entry.targetFilePath);
+
+  if (
+    sourceConcreteQualifiedName === (entry.sourceSymbol.qualifiedName ?? entry.sourceSymbol.name)
+    || targetConcreteQualifiedName === entry.targetQualifiedName
+    || sourceConcreteFilePath === entry.sourceFilePath
+    || targetConcreteFilePath === entry.targetFilePath
+  ) {
+    return null;
+  }
+
+  const sourceConcreteSymbol = deps.symbolRepo.findByQualifiedName(deps.repoId, sourceConcreteQualifiedName);
+  const existingFilePath = filePaths.has(targetConcreteFilePath) ? targetConcreteFilePath : null;
+  const existingSymbol = deps.symbolRepo.findByQualifiedName(deps.repoId, targetConcreteQualifiedName);
+
+  const planned: PlannedSymbol = {
+    sourceSymbol: sourceConcreteSymbol ?? entry.sourceSymbol,
+    sourceFilePath: sourceConcreteSymbol
+      ? (deps.symbolRepo.getFilePath(sourceConcreteSymbol.fileId) ?? sourceConcreteFilePath)
+      : sourceConcreteFilePath,
+    targetQualifiedName: targetConcreteQualifiedName,
+    targetFilePath: targetConcreteFilePath,
+    depth: entry.depth,
+    layer: entry.layer,
+    planKind: 'concrete_companion',
+    reasons: uniqueStrings([
+      ...entry.reasons,
+      `concrete companion for ${entry.targetQualifiedName}`,
+    ]),
+    wiresTo: [],
+    existingSymbol,
+    existingFilePath,
+  };
+
+  if (existingSymbol && sourceConcreteSymbol) {
+    const analysis = analyzeComparison(deps, sourceConcreteSymbol, existingSymbol);
+    planned.compareSummary = {
+      missing: analysis.onlyInA.length,
+      extra: analysis.onlyInB.length,
+      differing: analysis.sharedDifferent.length,
+    };
+  }
+
+  return planned;
+}
+
+function removeLeafInterfaceSuffix(value: string): string {
+  return value.replace(/Interface$/, '');
+}
+
+function removeInterfaceFileSuffix(filePath: string): string {
+  return filePath.replace(/Interface(\.[^.]+)$/i, '$1');
 }
 
 function comparePlannedSymbols(a: PlannedSymbol, b: PlannedSymbol): number {

@@ -92,6 +92,18 @@ describe('cartograph_compare', () => {
     expect(result).toContain('getModelName');
   });
 
+  it('can omit identical shared methods when requested', () => {
+    const result = handleCompare(deps, {
+      symbolA: 'App\\Routes\\JobCostCenters',
+      symbolB: 'App\\Routes\\RecurringJobCostCenters',
+      omitIdentical: true,
+    });
+
+    expect(result).not.toContain('### Shared — identical');
+    expect(result).not.toContain('getControllerName()');
+    expect(result).toContain('getSubRouteFolder');
+  });
+
   it('shows nothing missing when B has extra', () => {
     const result = handleCompare(deps, {
       symbolA: 'App\\Routes\\RecurringJobCostCenters',

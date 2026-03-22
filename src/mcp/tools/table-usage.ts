@@ -115,23 +115,23 @@ export function handleTableUsage(deps: TableUsageDeps, params: TableUsageParams)
     entityQualifiedNames,
     includeTests
   );
-  const usageRows = collectDependentUsage(
+  const entityUsageRows = collectDependentUsage(
     entityLinks,
     refRepo,
     deps.symbolRepo,
-    frameworkBridgeSeeds,
+    [],
     depth,
     limit,
     includeTests
   );
   lines.push('');
   lines.push('### Entity-Based Code Touchpoints');
-  if (usageRows.length === 0) {
+  if (entityUsageRows.length === 0) {
     lines.push(entityLinks.length === 0
       ? 'No entity-based touchpoints were found because there are no mapped entities to traverse.'
       : 'No indexed code references to the mapped entities were found.');
   } else {
-    renderDependentRows(lines, usageRows, includeTests, limit);
+    renderDependentRows(lines, entityUsageRows, includeTests, limit);
   }
 
   lines.push('');
@@ -140,6 +140,24 @@ export function handleTableUsage(deps: TableUsageDeps, params: TableUsageParams)
     lines.push('No direct table-name references were found in indexed source files.');
   } else {
     renderContentMatches(lines, directReferenceMatches, includeTests, limit);
+  }
+
+  const upstreamRows = collectUpstreamFrameworkUsage(
+    refRepo,
+    deps.symbolRepo,
+    frameworkBridgeSeeds,
+    depth,
+    limit,
+    includeTests
+  );
+  lines.push('');
+  lines.push('### Upstream Framework Touchpoints');
+  if (upstreamRows.length === 0) {
+    lines.push(frameworkBridgeSeeds.length === 0
+      ? 'No upstream framework touchpoints were inferred because no table-backed framework adapters were found.'
+      : 'No upstream framework wiring was found above the direct table-reference classes.');
+  } else {
+    renderDependentLayerGroups(lines, upstreamRows, includeTests, limit);
   }
 
   return lines.join('\n');
@@ -375,11 +393,50 @@ function isMappedEntitySymbol(symbolName: string, entityQualifiedNames: Set<stri
   return false;
 }
 
+function collectUpstreamFrameworkUsage(
+  refRepo: NonNullable<TableUsageDeps['refRepo']>,
+  symbolRepo: TableUsageDeps['symbolRepo'],
+  frameworkBridgeSeeds: FrameworkBridgeSeed[],
+  depth: number,
+  limit: number,
+  includeTests: boolean
+): DependentUsageRow[] {
+  return collectDependentUsage(
+    [],
+    refRepo,
+    symbolRepo,
+    frameworkBridgeSeeds,
+    depth,
+    limit,
+    includeTests
+  ).filter((row) => {
+    const layer = classifyArchitectureLayer(row.source_file_path ?? '', row.source_qualified_name ?? null);
+    return layer !== 'Other' && FRAMEWORK_BRIDGE_LAYERS.has(layer);
+  });
+}
+
 function renderDependentRows(lines: string[], rows: DependentUsageRow[], includeTests: boolean, limit: number): void {
   const productionRows = rows.filter((row) => !row.source_file_path || !isTestPath(row.source_file_path)).slice(0, includeTests ? rows.length : limit);
   const testRows = rows.filter((row) => row.source_file_path && isTestPath(row.source_file_path));
 
   renderDependentGroup(lines, productionRows, includeTests ? 'Production' : undefined);
+
+  if (includeTests) {
+    renderDependentGroup(lines, testRows, 'Tests');
+  } else if (testRows.length > 0) {
+    lines.push(`- Tests hidden by default: ${testRows.length} more touchpoint${testRows.length === 1 ? '' : 's'}. Re-run with includeTests=true to include them.`);
+  }
+}
+
+function renderDependentLayerGroups(lines: string[], rows: DependentUsageRow[], includeTests: boolean, limit: number): void {
+  const productionRows = rows.filter((row) => !row.source_file_path || !isTestPath(row.source_file_path)).slice(0, includeTests ? rows.length : limit);
+  const testRows = rows.filter((row) => row.source_file_path && isTestPath(row.source_file_path));
+
+  const grouped = groupDependentRowsByLayer(productionRows);
+  const orderedLayers = CONTENT_LAYER_ORDER.filter((layer) => grouped.has(layer));
+  for (const layer of orderedLayers) {
+    renderDependentGroup(lines, grouped.get(layer)!, layer);
+  }
 
   if (includeTests) {
     renderDependentGroup(lines, testRows, 'Tests');
@@ -399,6 +456,17 @@ function renderDependentGroup(lines: string[], rows: DependentUsageRow[], headin
     const lineSuffix = row.line_number ? `, line ${row.line_number}` : '';
     lines.push(`- ${depthLabel}${row.source_qualified_name} (${row.reference_kind}${lineSuffix}) — ${row.source_file_path}`);
   }
+}
+
+function groupDependentRowsByLayer(rows: DependentUsageRow[]): Map<string, DependentUsageRow[]> {
+  const grouped = new Map<string, DependentUsageRow[]>();
+  for (const row of rows) {
+    const layer = classifyArchitectureLayer(row.source_file_path ?? '', row.source_qualified_name ?? null);
+    const entries = grouped.get(layer) ?? [];
+    entries.push(row);
+    grouped.set(layer, entries);
+  }
+  return grouped;
 }
 
 function renderContentMatches(lines: string[], matches: ContentMatch[], includeTests: boolean, limit: number): void {

@@ -4,6 +4,7 @@ import { analyzeComparison, formatChild, formatSharedDifference, resolveSymbol }
 interface CompareParams {
   symbolA: string;
   symbolB: string;
+  omitIdentical?: boolean;
 }
 
 export function handleCompare(deps: ToolDeps, params: CompareParams): string {
@@ -20,6 +21,7 @@ export function handleCompare(deps: ToolDeps, params: CompareParams): string {
   }
 
   const analysis = analyzeComparison(deps, symA, symB);
+  const omitIdentical = params.omitIdentical ?? false;
 
   const lines: string[] = [];
   lines.push(`## Compare: ${symA.qualifiedName} vs ${symB.qualifiedName}\n`);
@@ -55,10 +57,10 @@ export function handleCompare(deps: ToolDeps, params: CompareParams): string {
     lines.push('');
   }
 
-  if (sharedIdentical.length > 0) {
+  if (!omitIdentical && sharedIdentical.length > 0) {
     lines.push(`### Shared \u2014 identical (${sharedIdentical.length}):`);
     lines.push(...sharedIdentical);
-  } else if (sharedDifferent.length === 0 && analysis.sharedIdentical.length > 0) {
+  } else if (!omitIdentical && sharedDifferent.length === 0 && analysis.sharedIdentical.length > 0) {
     lines.push(`### Shared (${analysis.sharedIdentical.length}):`);
     lines.push('(all identical or no body data available)');
   }

@@ -111,6 +111,16 @@ describe('cartograph_compare_many', () => {
     expect(result).toContain('Symbol not found');
   });
 
+  it('can include identical shared methods on demand', () => {
+    const result = handleCompareMany(deps, {
+      baseline: 'App\\JobCostCenters',
+      others: ['App\\QuoteCostCenters'],
+      includeIdentical: true,
+    });
+
+    expect(result).toContain('Shared identical methods (3): getControllerName, getBuilderName, getSubRouteFolder');
+  });
+
   it('shows baseline method bodies for missing methods when repo files are available', () => {
     const repoRepo = new RepoRepository(db);
     const fileRepo = new FileRepository(db);

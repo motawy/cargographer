@@ -549,6 +549,7 @@ describe('cartograph_table_usage', () => {
         limit: 20,
       });
 
+      expect(result).toContain('### Upstream Framework Touchpoints');
       expect(result).toContain('App\\Model\\RecurringQuoteModel::getDBTable');
       expect(result).toContain('App\\Controller\\RecurringQuoteController::getModelName');
       expect(result).toContain('App\\Route\\RecurringQuoteRoute::getControllerName');

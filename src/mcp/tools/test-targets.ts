@@ -39,6 +39,13 @@ interface DirectTestHint {
 
 type DirectTestHints = Map<string, DirectTestHint>;
 
+interface TestContentHintPattern {
+  query: string;
+  score: number;
+  reason: string;
+  lineMatcher: (line: string) => boolean;
+}
+
 const MIN_TEST_TARGET_SCORE = 8;
 const GENERIC_NAME_TOKENS = new Set([
   'test',
@@ -578,8 +585,7 @@ function collectContentMentionHints(
     return hints;
   }
 
-  if (qualifiedName) {
-    const qualifiedNameLower = qualifiedName.toLowerCase();
+  for (const pattern of buildTestContentHintPatterns(symbolName, qualifiedName)) {
     const matches = findContentMatches(
       {
         repoId: deps.repoId,
@@ -588,39 +594,80 @@ function collectContentMentionHints(
         symbolRepo: deps.symbolRepo,
       },
       {
-        query: qualifiedName,
+        query: pattern.query,
         includeTests: true,
         limit: 200,
-        lineMatcher: (line) => line.toLowerCase().includes(qualifiedNameLower),
+        lineMatcher: pattern.lineMatcher,
       }
     ).filter((match) => match.isTest);
 
     for (const match of matches) {
-      mergeDirectHint(hints, match.filePath, 14, `mentions ${qualifiedName}`);
+      mergeDirectHint(hints, match.filePath, pattern.score, pattern.reason);
     }
-  }
-
-  const symbolMatcher = exactTokenMatcher(symbolName);
-  const symbolMatches = findContentMatches(
-    {
-      repoId: deps.repoId,
-      repoPath: deps.repoPath,
-      fileRepo: deps.fileRepo,
-      symbolRepo: deps.symbolRepo,
-    },
-    {
-      query: symbolName,
-      includeTests: true,
-      limit: 200,
-      lineMatcher: (line) => symbolMatcher.test(line),
-    }
-  ).filter((match) => match.isTest);
-
-  for (const match of symbolMatches) {
-    mergeDirectHint(hints, match.filePath, 8, `mentions ${symbolName}`);
   }
 
   return hints;
+}
+
+function buildTestContentHintPatterns(
+  symbolName: string,
+  qualifiedName?: string | null
+): TestContentHintPattern[] {
+  const patterns: TestContentHintPattern[] = [];
+
+  if (qualifiedName) {
+    const qualifiedImportPattern = buildQualifiedImportPattern(qualifiedName);
+    patterns.push({
+      query: qualifiedName,
+      score: 36,
+      reason: `imports ${qualifiedName}`,
+      lineMatcher: (line) => qualifiedImportPattern.test(line),
+    });
+
+    const qualifiedNameLower = qualifiedName.toLowerCase();
+    patterns.push({
+      query: qualifiedName,
+      score: 18,
+      reason: `mentions ${qualifiedName}`,
+      lineMatcher: (line) => line.toLowerCase().includes(qualifiedNameLower),
+    });
+  }
+
+  const classUsagePattern = buildClassUsagePattern(symbolName);
+  patterns.push({
+    query: symbolName,
+    score: 28,
+    reason: `constructs or class-references ${symbolName}`,
+    lineMatcher: (line) => classUsagePattern.test(line),
+  });
+
+  const symbolMatcher = exactTokenMatcher(symbolName);
+  patterns.push({
+    query: symbolName,
+    score: 8,
+    reason: `mentions ${symbolName}`,
+    lineMatcher: (line) => symbolMatcher.test(line),
+  });
+
+  return patterns;
+}
+
+function buildQualifiedImportPattern(qualifiedName: string): RegExp {
+  const escaped = escapeRegExp(qualifiedName.replace(/^\\+/, ''));
+  return new RegExp(`\\buse\\s+\\\\?${escaped}(?:\\s+as\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*;`, 'i');
+}
+
+function buildClassUsagePattern(symbolName: string): RegExp {
+  const escaped = escapeRegExp(symbolName);
+  return new RegExp(
+    [
+      `\\bnew\\s+${escaped}\\b`,
+      `\\b${escaped}::class\\b`,
+      `\\b(?:extends|implements)\\s+[^\\{;]*\\b${escaped}\\b`,
+      `\\b(?:createMock|getMockBuilder|prophesize|stub|spy)\\s*\\(\\s*${escaped}::class`,
+    ].join('|'),
+    'i'
+  );
 }
 
 function isLikelyTableMention(line: string, tableName: string): boolean {
@@ -630,4 +677,8 @@ function isLikelyTableMention(line: string, tableName: string): boolean {
 function exactTokenMatcher(value: string): RegExp {
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'i');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
