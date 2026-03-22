@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { FileRepository } from '../db/repositories/file-repository.js';
+import { RepoRepository } from '../db/repositories/repo-repository.js';
 import { SymbolRepository } from '../db/repositories/symbol-repository.js';
 import { ReferenceRepository } from '../db/repositories/reference-repository.js';
 import { DbSchemaRepository } from '../db/repositories/db-schema-repository.js';
@@ -24,6 +25,7 @@ import { handleSearchContent } from './tools/search-content.js';
 import { handleScaffoldPlan } from './tools/scaffold-plan.js';
 import { handleTableUsage } from './tools/table-usage.js';
 import { handleTestTargets } from './tools/test-targets.js';
+import { getIndexStalenessWarning } from '../utils/index-freshness.js';
 
 interface ServerOptions {
   db: Database.Database;
@@ -36,6 +38,7 @@ export function createServer(opts: ServerOptions): McpServer {
   const refRepo = new ReferenceRepository(opts.db);
   const schemaRepo = new DbSchemaRepository(opts.db);
   const fileRepo = new FileRepository(opts.db);
+  const repoRepo = new RepoRepository(opts.db);
   const symbolSchemaRepo = new SymbolSchemaRepository(opts.db);
   const tableReferenceRepo = new TableReferenceRepository(opts.db);
 
@@ -58,9 +61,19 @@ export function createServer(opts: ServerOptions): McpServer {
   });
 
   // Error wrapper — catch DB errors, format as user-facing text, log to stderr.
-  function wrap(fn: () => string): Promise<{ content: { type: 'text'; text: string }[] }> {
+  function wrap(
+    fn: () => string,
+    wrapOpts: { includeStaleWarning?: boolean } = {}
+  ): Promise<{ content: { type: 'text'; text: string }[] }> {
     try {
-      const text = fn();
+      let text = fn();
+      if (wrapOpts.includeStaleWarning !== false) {
+        const repo = repoRepo.findById(opts.repoId);
+        const warning = repo ? getIndexStalenessWarning(repo.lastIndexedAt) : null;
+        if (warning) {
+          text = `${warning}\n\n${text}`;
+        }
+      }
       return Promise.resolve({ content: [{ type: 'text' as const, text }] });
     } catch (err) {
       console.error('Cartograph tool error:', err);
@@ -74,7 +87,7 @@ export function createServer(opts: ServerOptions): McpServer {
     'cartograph_status',
     'Check index health: when it was last built, how many symbols/files are indexed, and whether a re-index is needed',
     {},
-    async () => wrap(() => handleStatus({ db: opts.db, repoId: opts.repoId }))
+    async () => wrap(() => handleStatus({ db: opts.db, repoId: opts.repoId }), { includeStaleWarning: false })
   );
 
   // --- cartograph_table ---
@@ -154,7 +167,7 @@ export function createServer(opts: ServerOptions): McpServer {
     {
       query: z.string().describe('Class or symbol name to search for (e.g. "UserService", "RecurringJobs*"). Always matches anywhere in the qualified name.'),
       kind: z.enum(['class', 'interface', 'trait', 'method', 'function', 'property', 'constant', 'enum']).optional().describe('Filter by symbol kind'),
-      path: z.string().optional().describe('Filter by file path prefix (e.g. "app/Services", "src/Routes/Root")'),
+      path: z.string().optional().describe('Filter by file path substring (e.g. "app/Services", "src/Routes/Root")'),
       limit: z.number().min(1).max(50).optional().describe('Max results (default 20)'),
     },
     async ({ query, kind, path, limit }) => wrap(() => handleFind(deps, { query, kind, path, limit }))

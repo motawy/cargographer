@@ -15,7 +15,7 @@ export function generateClaudeMdSection(stats: RepoStats, conventions: Conventio
 
   // Workflow directive
   lines.push(`### Workflow`);
-  lines.push(`1. Run \`cartograph_status\` to check if the index is fresh (warns if stale)`);
+  lines.push(`1. Run \`cartograph_status\` to check if the index is fresh. If it warns that the index is stale, run \`cartograph refresh\` before trusting results`);
   lines.push(`2. For database work, use \`cartograph_schema\` to discover tables before guessing names`);
   lines.push(`3. Use \`cartograph_table\` for exact current table shape (columns + inbound/outbound foreign keys)`);
   lines.push(`4. Use \`cartograph_table_graph\` to walk related tables by foreign keys before searching SQL files manually`);
@@ -34,7 +34,7 @@ export function generateClaudeMdSection(stats: RepoStats, conventions: Conventio
   lines.push(`### Available Tools\n`);
   lines.push('| Tool | What it does | Key options |');
   lines.push('|------|-------------|-------------|');
-  lines.push('| `cartograph_status` | Check index health and freshness | — |');
+  lines.push('| `cartograph_status` | Check index health and freshness. If stale, refresh the repo before trusting tool output. | — |');
   lines.push('| `cartograph_schema` | List or search current database tables with column and foreign-key counts. Use this first for DB work so you do not guess table names. | `query`: partial table name. `limit`: max results |');
   lines.push('| `cartograph_table` | Inspect exact current table shape from Cartograph\'s canonical schema layer, including columns and inbound/outbound foreign keys. | `name`: table name |');
   lines.push('| `cartograph_table_graph` | Traverse the foreign-key neighborhood around a table to understand adjacent tables and impact radius. | `name`: table name. `depth`: 1-5 |');

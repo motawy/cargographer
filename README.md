@@ -2,7 +2,7 @@
 
 **Map your codebase so AI can navigate it.**
 
-Cartograph is a TypeScript CLI and MCP server that indexes a PHP codebase into a local SQLite database, generates AI-readable context files, and exposes code-navigation tools over MCP. It is built to make codebase exploration repeatable for AI tools by precomputing symbols, references, and module-level summaries instead of rediscovering them every session.
+Cartograph is a TypeScript CLI and MCP server that indexes a PHP codebase into a local SQLite database, injects AI-readable guidance into `CLAUDE.md`, and exposes code-navigation tools over MCP. It is built to make codebase exploration repeatable for AI tools by precomputing symbols and references instead of rediscovering them every session.
 
 ## Current Scope
 
@@ -11,12 +11,9 @@ Cartograph is a TypeScript CLI and MCP server that indexes a PHP codebase into a
 - Local SQLite database via `better-sqlite3`
 - No Docker required for normal use
 - No embeddings, LLM summarization, Redis, or pgvector in the current implementation
-- Generated outputs:
-  - `.cartograph/CLAUDE.md`
-  - `.cartograph/modules.md`
-  - `.cartograph/dependencies.md`
-  - `.cartograph/conventions.md`
-- `cartograph generate` also injects or updates a Cartograph section in `CLAUDE.md`
+- `cartograph generate` injects or updates a Cartograph section in `CLAUDE.md`
+- `cartograph init` bootstraps `.cartograph.yml`, `.mcp.json`, the first index, and `CLAUDE.md`
+- `cartograph refresh` is the one-shot "make Cartograph current" command
 
 ## What It Does
 
@@ -27,6 +24,7 @@ Cartograph is a TypeScript CLI and MCP server that indexes a PHP codebase into a
 - Extracts Doctrine-style entity→table and property→column mappings from PHP attributes/docblocks when present
 - Extracts references such as inheritance, implementations, trait use, instantiation, static calls, self calls, type hints, and class references
 - Stores the index locally so CLI commands and MCP tools can answer structural questions without rescanning the repo
+- Warns in MCP tool responses when the index is stale
 
 ## Quick Start
 
@@ -38,20 +36,18 @@ Requires Node.js 22+.
 npm install -g cartograph
 ```
 
-### First-Time Index
-
-Run migrations on the first index:
+### First-Time Setup
 
 ```bash
-cartograph index /path/to/repo --run-migrations
+cartograph init /path/to/repo
 ```
 
-Subsequent runs can omit `--run-migrations`.
+This writes `.cartograph.yml`, creates or updates `.mcp.json`, runs the first index, and injects the Cartograph guidance block into `CLAUDE.md`.
 
-### Generate Context Files
+### Refresh After Code or Schema Changes
 
 ```bash
-cartograph generate /path/to/repo
+cartograph refresh /path/to/repo
 ```
 
 ### Start the MCP Server
@@ -62,27 +58,38 @@ cartograph serve --repo-path /path/to/repo
 
 `serve` uses stdio transport by default. There is no separate `--stdio` flag.
 
-## Generated Files
-
-After `cartograph generate`, the indexed repo will contain:
-
-```text
-your-repo/
-└── .cartograph/
-    ├── CLAUDE.md
-    ├── modules.md
-    ├── dependencies.md
-    └── conventions.md
-```
-
 Generation behavior:
 
-- Cartograph also injects or updates a managed section in the repo's main CLAUDE file.
+- Cartograph injects or updates a managed section in the repo's main CLAUDE file.
 - If `CLAUDE.md` exists at the repo root, Cartograph injects there.
 - Otherwise, if `.claude/CLAUDE.md` exists, Cartograph injects there.
 - Otherwise, Cartograph creates `CLAUDE.md` at the repo root.
 
 ## CLI Commands
+
+### `cartograph init [repo-path]`
+
+Interactive first-time setup for a repo.
+
+It can detect PHP/SQL sources, write `.cartograph.yml`, create or update `.mcp.json`, run the first index, and inject the managed Cartograph section into `CLAUDE.md`.
+
+Useful options:
+
+- `--yes` to accept detected defaults without prompts
+- `--overwrite-config` to replace an existing `.cartograph.yml`
+- `--mcp-path <path>` to write the MCP config somewhere other than `<repo>/.mcp.json`
+- `--claude-md <path>` to target a specific `CLAUDE.md`
+
+### `cartograph refresh [repo-path]`
+
+Run the full Cartograph refresh flow: migrate the local SQLite schema, reindex the repo, import live PostgreSQL schema when configured, and update `CLAUDE.md`.
+
+Useful options:
+
+- `--claude-md <path>` to override the target `CLAUDE.md`
+- `--verbose` to log each processed file during indexing
+- `--log <path>` to write a full index log to a file
+- `--db-host`, `--db-port`, `--db-user`, `--db-password`, `--db-name` to override PostgreSQL live-schema import settings
 
 ### `cartograph index <repo-path>`
 
@@ -90,13 +97,12 @@ Build or update the codebase index.
 
 Useful options:
 
-- `--run-migrations` to create or update the SQLite schema before indexing
 - `--verbose` to log each processed file
 - `--log <path>` to write a full index log to a file
 
 ### `cartograph generate <repo-path>`
 
-Generate `.cartograph` markdown files and inject the Cartograph guidance block into `CLAUDE.md`.
+Inject or update the managed Cartograph guidance block in `CLAUDE.md`.
 
 Useful options:
 
@@ -237,6 +243,8 @@ The MCP server currently exposes these tools:
 
 ### Example MCP Config
 
+`cartograph init` writes this into `<repo>/.mcp.json` by default.
+
 ```json
 {
   "mcpServers": {
@@ -299,7 +307,7 @@ Notes:
 5. Doctrine-style entity/table mappings are extracted from PHP attributes and docblocks when present.
 6. Cross-file resolution links references to concrete indexed symbols.
 7. Current schema is materialized either from SQL migrations or a live PostgreSQL import.
-8. Output generators and MCP tools read from the prebuilt index and canonical schema layer.
+8. `CLAUDE.md` injection and MCP tools read from the prebuilt index and canonical schema layer.
 
 ## Project Structure
 
@@ -324,7 +332,9 @@ tests/
 ```bash
 npm install
 npm run build
-npm run dev -- index /path/to/repo --run-migrations
+npm run dev -- init /path/to/repo --yes
+npm run dev -- refresh /path/to/repo
+npm run dev -- index /path/to/repo
 npm run dev -- status /path/to/repo
 npm run dev -- schema --repo-path /path/to/repo
 npm run dev -- table <table-name> --repo-path /path/to/repo
@@ -351,7 +361,7 @@ If that is not enough, remove `node_modules` and reinstall.
 
 ### "No index found"
 
-`generate`, `serve`, `uses`, `impact`, and `trace` all require the repo to have been indexed first.
+`generate`, `serve`, `uses`, `impact`, and `trace` all require the repo to have been indexed first. `cartograph init` and `cartograph refresh` handle the indexing step for you.
 
 ### Unsupported language
 

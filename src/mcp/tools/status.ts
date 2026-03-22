@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { DbSchemaRepository } from '../../db/repositories/db-schema-repository.js';
 import { parseSqliteTimestamp } from '../../utils/sqlite-time.js';
+import { describeAge, getIndexStalenessWarning } from '../../utils/index-freshness.js';
 import {
   analyzeUnresolvedReferences,
   formatUnresolvedCategory,
@@ -115,11 +116,11 @@ export function handleStatus(deps: StatusDeps): string {
   lines.push(`Repository: ${repo.name} (${repo.path})`);
 
   if (lastIndexed) {
-    const ago = timeSince(lastIndexed);
+    const ago = describeAge(lastIndexed);
     lines.push(`Last indexed (UTC): ${lastIndexed.toISOString()} (${ago})`);
-    const hoursAgo = (Date.now() - lastIndexed.getTime()) / (1000 * 60 * 60);
-    if (hoursAgo > 24) {
-      lines.push(`\u26a0\ufe0f  Index is ${Math.floor(hoursAgo / 24)} day(s) old. Consider re-running \`cartograph index\`.`);
+    const warning = getIndexStalenessWarning(lastIndexed);
+    if (warning) {
+      lines.push(`\u26a0\ufe0f  ${warning.replace(/^Warning:\s*/, '')}`);
     }
   } else {
     lines.push(`Last indexed: unknown`);
@@ -178,18 +179,6 @@ export function handleStatus(deps: StatusDeps): string {
 
   return lines.join('\n');
 }
-
-function timeSince(date: Date): string {
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function formatRate(numerator: number, denominator: number): string {
   if (denominator <= 0) return '0';
 

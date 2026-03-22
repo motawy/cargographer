@@ -146,4 +146,19 @@ describe('MCP Server Integration', () => {
     expect(text).toContain('## Scaffold Plan: App\\Foo');
     expect(text).toContain('app/Bar.php');
   });
+
+  it('prepends a stale-index warning to non-status tool calls', async () => {
+    db.prepare(
+      "UPDATE repos SET last_indexed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3 days') WHERE id = ?"
+    ).run(repoId);
+
+    const result = await client.callTool({ name: 'cartograph_find', arguments: { query: 'Foo' } });
+    const text = (result.content as { type: string; text: string }[])[0].text;
+    expect(text).toContain('Warning: index is');
+    expect(text).toContain('Run `cartograph refresh`');
+
+    const statusResult = await client.callTool({ name: 'cartograph_status', arguments: {} });
+    const statusText = (statusResult.content as { type: string; text: string }[])[0].text;
+    expect(statusText.match(/index is .* old/ig)?.length ?? 0).toBe(1);
+  });
 });

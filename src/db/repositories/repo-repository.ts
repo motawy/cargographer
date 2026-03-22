@@ -32,6 +32,14 @@ export class RepoRepository {
     return this.toRecord(row);
   }
 
+  findById(id: number): RepoRecord | null {
+    const row = this.db.prepare(
+      'SELECT id, path, name, created_at, last_indexed_at FROM repos WHERE id = ?'
+    ).get(id) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.toRecord(row);
+  }
+
   updateLastIndexed(id: number): void {
     this.db.prepare(
       "UPDATE repos SET last_indexed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?"
